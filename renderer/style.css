@@ -1,4 +1,6 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* hidden属性を常に効かせる（.warn等のdisplay:flexに上書きされないように） */
+[hidden] { display: none !important; }
 :root {
   --bg: #f4f6f8;
   --panel: #ffffff;

@@ -1,6 +1,6 @@
 {
   "name": "esco-ai",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "ESCO Works - エスコ社内AIアシスタント (Claude Agent SDK × Electron)",
   "main": "main.js",
   "author": "ULTRIX",
@@ -17,11 +17,14 @@
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.2",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "jp.ultrix.esco-works",
     "productName": "ESCO Works",
+    "afterPack": "./afterPack.js",
     "files": [
       "main.js",
       "preload.js",
@@ -38,7 +41,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "artifactName": "ESCO-Works-Setup-${version}.${ext}"
     },
@@ -46,7 +49,9 @@
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
-      "shortcutName": "ESCO Works"
+      "shortcutName": "ESCO Works",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "publish": [
       {
