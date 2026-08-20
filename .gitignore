@@ -1,0 +1,6 @@
+node_modules/
+dist/
+build/shots/
+# 機密（更新用トークンを含む）はコミットしない。配布ビルド時にのみ配置する。
+build/update-config.json
+test/

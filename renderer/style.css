@@ -1,0 +1,323 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --line: #dde3e9;
+  --accent: #0e7a5f;
+  --accent-weak: #e3f2ec;
+  --text: #1d2a33;
+  --muted: #66788a;
+}
+html, body { height: 100%; }
+body {
+  font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: bold; color: var(--accent); font-size: 16px; margin-right: 8px; }
+.spacer { flex: 1; }
+
+.mode {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.mode:first-child { border-radius: 6px 0 0 6px; }
+.mode:last-child { border-radius: 0 6px 6px 0; }
+.mode.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.ghost {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.updatebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #eaf1fc;
+  border-bottom: 1px solid #bcd2f2;
+  color: #234b8a;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+.updatebar button {
+  border: 1px solid #234b8a;
+  background: #234b8a;
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.warn {
+  background: #fff3cd;
+  border-bottom: 1px solid #e6d9a8;
+  color: #6b5900;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+#content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+#chatCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* --- 左サイドバー（作業フォルダのファイルツリー） --- */
+#side {
+  width: 232px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: bold;
+}
+.mini {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 1px 7px;
+  cursor: pointer;
+  font-size: 12px;
+}
+#tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 4px;
+  font-size: 13px;
+}
+.fitem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+.fitem:hover { background: var(--accent-weak); }
+.fitem .caret { width: 12px; text-align: center; color: var(--muted); flex-shrink: 0; }
+.fitem .fname { overflow: hidden; text-overflow: ellipsis; }
+.tree-empty {
+  padding: 12px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.side-hint {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msg {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* --- AIメッセージ内のMarkdown整形 --- */
+.msg.ai h1, .msg.ai h2, .msg.ai h3 { font-size: 15px; margin: 8px 0 4px; font-weight: bold; }
+.msg.ai h1:first-child, .msg.ai h2:first-child, .msg.ai h3:first-child { margin-top: 0; }
+.msg.ai p { margin: 0 0 8px; }
+.msg.ai p:last-child { margin-bottom: 0; }
+.msg.ai ul, .msg.ai ol { margin: 4px 0 8px; padding-left: 22px; }
+.msg.ai li { margin: 2px 0; }
+.msg.ai code {
+  background: rgba(0,0,0,0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.92em;
+}
+.msg.ai pre {
+  background: rgba(0,0,0,0.05);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.msg.ai pre code { background: none; padding: 0; }
+.msg.ai strong { font-weight: bold; }
+.msg.ai a { color: var(--accent); }
+
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg.ai { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.error { align-self: center; background: #fdecec; color: #8f2323; border: 1px solid #f0c3c3; font-size: 13px; }
+.msg.pending { color: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+/* --- インライン許可カード（Claude Code風） --- */
+.permcard {
+  align-self: stretch;
+  background: #fff8e6;
+  border: 1px solid #e6d9a8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.permcard .pc-head { margin-bottom: 6px; }
+.permcard .pc-head b { color: #6b5900; }
+.permcard pre {
+  margin: 0 0 8px;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.permcard .pc-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.permcard button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 7px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.permcard button.pc-allow { background: var(--accent); color: #fff; border-color: var(--accent); }
+.permcard.answered { opacity: 0.7; }
+.permcard .pc-result { color: var(--muted); font-size: 12px; }
+/* 選択肢カードはアクセント色で分ける */
+.choicecard { background: var(--accent-weak); border-color: #bfe0d4; }
+.choicecard .pc-btns button { border-color: #bfe0d4; }
+.choicecard .pc-btns button:hover { background: #fff; }
+
+/* --- 許可モードバッジ --- */
+.footRow { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.modeBadge {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+.modeBadge.mode-normal { color: var(--muted); }
+.modeBadge.mode-plan { border-color: #2f6fd6; color: #2f6fd6; background: #eaf1fc; }
+.modeBadge.mode-bypass { border-color: #c2410c; color: #c2410c; background: #fdeee6; }
+
+footer {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 8px 14px 10px;
+}
+#autoWrap { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.inputRow { display: flex; gap: 8px; }
+textarea {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: none;
+}
+textarea:focus { outline: 2px solid var(--accent-weak); border-color: var(--accent); }
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 14px;
+  cursor: pointer;
+}
+button.primary:disabled { opacity: 0.5; cursor: default; }
+#stopBtn, #askDeny, #setCancel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.status { display: flex; margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 24px;
+  width: 420px;
+  max-width: 90vw;
+}
+dialog::backdrop { background: rgba(0,0,0,0.3); }
+dialog h3 { margin-bottom: 14px; color: var(--accent); }
+dialog label { display: block; font-size: 13px; margin-bottom: 10px; color: var(--muted); }
+dialog input, dialog select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 14px;
+  color: var(--text);
+}
+dialog fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+dialog label.chk { display: flex; align-items: flex-start; gap: 6px; }
+dialog label.chk input { width: auto; margin-top: 2px; }
+dialog legend { font-size: 12px; color: var(--muted); padding: 0 6px; }
+.dlgBtns { display: flex; gap: 8px; justify-content: flex-end; }

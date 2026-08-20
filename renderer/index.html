@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'" />
+  <title>ESCO Works</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">ESCO Works</div>
+    <nav id="modes">
+      <button data-mode="chat" class="mode active">チャット</button>
+      <button data-mode="docs" class="mode">資料作成</button>
+      <button data-mode="files" class="mode">フォルダ整理</button>
+    </nav>
+    <div class="spacer"></div>
+    <button id="folderBtn" class="ghost" title="AIが読み書きするフォルダ">📁 <span id="folderName">…</span></button>
+    <button id="newWinBtn" class="ghost" title="新しいウィンドウ（別作業を並行）">🪟</button>
+    <button id="newChatBtn" class="ghost" title="会話をリセット">🆕</button>
+    <button id="settingsBtn" class="ghost" title="設定">⚙</button>
+  </header>
+
+  <div id="updateBar" class="updatebar" hidden>
+    <span id="updateMsg"></span>
+    <button id="updateBtn" hidden>今すぐ再起動して更新</button>
+  </div>
+
+  <div id="keyWarn" class="warn" hidden>
+    APIキー未設定のため、このPCのClaudeログインで動作中です（テスト利用向け）。社員に配る前に⚙設定でエスコのAPIキーを入れてください。
+  </div>
+
+  <div id="content">
+    <aside id="side">
+      <div class="side-head">
+        <span id="sideTitle">ファイル</span>
+        <button id="refreshBtn" class="mini" title="一覧を更新">↻</button>
+      </div>
+      <div id="tree"></div>
+      <div class="side-hint">クリックで選択 → チャットへドラッグ<br>ダブルクリックで開く</div>
+    </aside>
+
+    <div id="chatCol">
+      <main id="messages"></main>
+
+      <footer>
+    <div class="footRow">
+      <button id="modeBtn" class="modeBadge" title="Shift+Tab で切り替え">● ノーマル</button>
+      <label id="autoWrap" title="フォルダ整理の一括処理を確認なしで進めます">
+        <input type="checkbox" id="autoApprove" /> ファイル操作を自動許可
+      </label>
+    </div>
+    <div class="inputRow">
+      <textarea id="input" rows="2" placeholder="メッセージを入力（Enterで送信 / Shift+Enterで改行）"></textarea>
+      <button id="sendBtn" class="primary">送信</button>
+      <button id="stopBtn" hidden>停止</button>
+    </div>
+    <div class="status">
+      <span id="toolStatus"></span>
+      <span class="spacer"></span>
+      <span id="cost"></span>
+    </div>
+  </footer>
+    </div><!-- /chatCol -->
+  </div><!-- /content -->
+
+  <dialog id="settingsDlg">
+    <h3>設定</h3>
+    <label>APIキー（Anthropic）
+      <input type="password" id="setKey" placeholder="sk-ant-..." />
+    </label>
+    <label>お名前（任意）
+      <input type="text" id="setName" />
+    </label>
+    <fieldset>
+      <legend>モデル（作業モードごと）</legend>
+      <label>チャット
+        <select id="mChat"></select>
+      </label>
+      <label>資料作成
+        <select id="mDocs"></select>
+      </label>
+      <label>フォルダ整理
+        <select id="mFiles"></select>
+      </label>
+    </fieldset>
+    <label class="chk">
+      <input type="checkbox" id="setBrowser" /> ブラウザ操作を有効化（AIがChromeでWeb操作できるようになります）
+    </label>
+    <div class="dlgBtns">
+      <button id="setSave" class="primary">保存</button>
+      <button id="setCancel">閉じる</button>
+    </div>
+  </dialog>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
