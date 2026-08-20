@@ -8,3 +8,7 @@ test/
 build-elevated.ps1
 build-elevated.log
 dlsite/
+
+_SECRET*
+*_api_key*
+*.log
