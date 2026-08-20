@@ -37,7 +37,9 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false,
+      "artifactName": "ESCO-Works-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,
