@@ -79,6 +79,19 @@ header {
   color: #6b5900;
   padding: 8px 14px;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.warn button {
+  border: 1px solid #b08900;
+  background: #b08900;
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 #content {

@@ -250,6 +250,8 @@ async function boot() {
   if (init.version) $('verLabel').textContent = 'v' + init.version
   updateCost()
   refreshTree()
+  // 初回（キー未設定）は設定画面を自動で開いて登録を促す
+  if (!init.hasApiKey) setTimeout(() => $('settingsBtn').click(), 700)
 
   for (const sel of ['mChat', 'mDocs', 'mFiles']) {
     for (const m of MODELS) {
@@ -576,5 +578,6 @@ window.escoAI.on('update:status', (s) => {
   }
 })
 $('updateBtn').addEventListener('click', () => window.escoAI.installUpdate())
+$('keyOpenBtn').addEventListener('click', () => $('settingsBtn').click())
 
 boot()
