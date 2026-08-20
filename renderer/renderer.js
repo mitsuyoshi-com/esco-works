@@ -247,6 +247,7 @@ async function boot() {
   $('folderBtn').title = init.workFolder || '作業フォルダを選択'
   $('sideTitle').textContent = hasFolder ? folderLabel(init.workFolder) : 'フォルダ未選択'
   $('keyWarn').hidden = init.hasApiKey
+  if (init.version) $('verLabel').textContent = 'v' + init.version
   updateCost()
   refreshTree()
 

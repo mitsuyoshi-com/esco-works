@@ -151,7 +151,8 @@ app.whenReady().then(async () => {
       settings: { ...settings, apiKey: settings.apiKey ? '****' + settings.apiKey.slice(-4) : '' },
       hasApiKey: !!settings.apiKey,
       workFolder: s.workFolder,
-      monthUsd: monthUsage()
+      monthUsd: monthUsage(),
+      version: app.getVersion()
     }
   })
 
