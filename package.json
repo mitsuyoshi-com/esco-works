@@ -1,6 +1,6 @@
 {
   "name": "esco-ai",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "ESCO Works - エスコ社内AIアシスタント (Claude Agent SDK × Electron)",
   "main": "main.js",
   "author": "ULTRIX",

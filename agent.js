@@ -39,6 +39,21 @@ const MODES = {
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { spawnSync } = require('child_process')
+
+// このPCに npx（Node.js）があるか一度だけ判定してキャッシュする。
+// 無いPC（多くの社員PC）ではブラウザ操作MCPを起動せず、毎ターンのエラーを防ぐ。
+let _npxAvailable
+function hasNpx() {
+  if (_npxAvailable !== undefined) return _npxAvailable
+  try {
+    const r = spawnSync('cmd', ['/c', 'npx --version'], { timeout: 8000, windowsHide: true })
+    _npxAvailable = r.status === 0
+  } catch {
+    _npxAvailable = false
+  }
+  return _npxAvailable
+}
 
 // 承認なしで常に許可する読み取り系（外部送信の能力がないもののみ）。
 // WebSearch/WebFetchは外部にデータを送れるため、ここには入れず確認フローに回す。
@@ -317,8 +332,9 @@ class AgentRunner {
     const abort = new AbortController()
     this.abort = abort
 
-    // ブラウザ操作を期待しているターンかを記録（MCP失敗の誤検知を防ぐ）
-    this._expectBrowser = !!settings.enableBrowser
+    // ブラウザ操作は「設定ON かつ npx(Node.js)がある」場合のみ有効
+    const browserEnabled = !!settings.enableBrowser && hasNpx()
+    this._expectBrowser = browserEnabled
 
     const env = { ...process.env }
     if (settings.apiKey) env.ANTHROPIC_API_KEY = settings.apiKey
@@ -336,11 +352,11 @@ class AgentRunner {
       })
     }
 
-    // ブラウザ操作を有効化している場合はPlaywright MCP(公式)も接続
+    // ブラウザ操作が有効なときのみPlaywright MCP(公式)を接続
     // Windowsではnpxをcmd経由で起動する。--browser chromeでインストール済みChromeを使う
     const mcpServers = {
       ask: this._askServer,
-      ...(settings.enableBrowser
+      ...(browserEnabled
         ? {
             playwright: {
               command: 'cmd',
