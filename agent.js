@@ -117,11 +117,39 @@ function resolveClaudeExecutable() {
   try {
     const { app } = require('electron')
     if (!app || !app.isPackaged) return _exeCache
-    const req = require('module').createRequire(__filename)
-    const p = req
-      .resolve('@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe')
-      .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
-    if (fs.existsSync(p)) _exeCache = p
+    // process.resourcesPath から app.asar.unpacked 配下を直接組み立てる（asar内require.resolveに依存しない）
+    const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai')
+    const candidates = [
+      // 入れ子: claude-agent-sdk/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe
+      path.join(unpacked, 'claude-agent-sdk', 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64', 'claude.exe'),
+      // フラット
+      path.join(unpacked, 'claude-agent-sdk-win32-x64', 'claude.exe')
+    ]
+    for (const c of candidates) {
+      if (fs.existsSync(c)) {
+        _exeCache = c
+        return _exeCache
+      }
+    }
+    // 最後の手段: unpacked配下を再帰探索
+    const stack = [path.join(process.resourcesPath, 'app.asar.unpacked')]
+    while (stack.length) {
+      const dir = stack.pop()
+      let entries
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name)
+        if (e.isDirectory()) stack.push(full)
+        else if (e.name === 'claude.exe') {
+          _exeCache = full
+          return _exeCache
+        }
+      }
+    }
   } catch {
     _exeCache = null
   }
