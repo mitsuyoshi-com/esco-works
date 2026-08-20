@@ -6,7 +6,7 @@ const path = require('path')
 const DEFAULTS = {
   apiKey: '',
   userName: '',
-  enableBrowser: true,
+  enableBrowser: false,
   models: {
     chat: 'claude-sonnet-5',
     docs: 'claude-sonnet-5',
