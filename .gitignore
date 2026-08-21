@@ -12,3 +12,6 @@ dlsite/
 _SECRET*
 *_api_key*
 *.log
+
+# 社内情報を含む作業ログは公開repoに絶対に入れない（2026-08-21 履歴からも除去済み）
+_PROJECT_LOG.md
