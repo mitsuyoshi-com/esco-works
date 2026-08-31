@@ -11,7 +11,14 @@ const DEFAULTS = {
     chat: 'claude-sonnet-5',
     docs: 'claude-sonnet-5',
     files: 'claude-sonnet-5'
-  }
+  },
+  // スマホ連携。mode: off | tunnel（かんたん接続=Quick Tunnel）| relay（サーバー経由=ハイブリッド）
+  // enabled は remote.js（トンネル時のRemoteServer）が参照する導出値（mode==='tunnel'）
+  remote: { mode: 'off', enabled: false },
+  // サーバー経由(relay)の接続情報。orgKey/pcSecretは各PCローカルのみ（リポジトリに入れない）
+  relay: { url: '', orgKey: '', pcId: '', pcSecret: '' },
+  // ペアリング済み端末の台帳（トンネル方式の表示・監査用のみ）: { deviceId, name, pairedAt, lastSeen }
+  remoteDevices: []
 }
 
 function settingsFile() {
@@ -24,7 +31,17 @@ function usageFile() {
 function loadSettings() {
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))
-    return { ...DEFAULTS, ...raw, models: { ...DEFAULTS.models, ...(raw.models || {}) } }
+    const s = {
+      ...DEFAULTS,
+      ...raw,
+      models: { ...DEFAULTS.models, ...(raw.models || {}) },
+      remote: { ...DEFAULTS.remote, ...(raw.remote || {}) },
+      relay: { ...DEFAULTS.relay, ...(raw.relay || {}) }
+    }
+    // 旧形式 {enabled:true}（mode未導入時代のトンネルON）→ mode:'tunnel' へ移行
+    if (raw.remote && raw.remote.enabled && !raw.remote.mode) s.remote.mode = 'tunnel'
+    s.remote.enabled = s.remote.mode === 'tunnel'
+    return s
   } catch {
     return JSON.parse(JSON.stringify(DEFAULTS))
   }

@@ -1,0 +1,203 @@
+/* ESCO Works スマホ版（デスクトップ版 style.css と同じ配色体系・1カラム） */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --line: #dde3e9;
+  --accent: #0e7a5f;
+  --accent-weak: #e3f2ec;
+  --text: #1d2a33;
+  --muted: #66788a;
+}
+html, body { height: 100%; }
+body {
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100dvh; /* モバイルのアドレスバー伸縮に追従 */
+  overflow: hidden;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.brand { font-weight: bold; color: var(--accent); font-size: 16px; }
+.brand .sub { font-weight: normal; font-size: 11px; color: var(--muted); }
+.spacer { flex: 1; }
+.ghost {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 16px;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.connbar {
+  background: #fff3cd;
+  border-bottom: 1px solid #e6d9a8;
+  color: #6b5900;
+  padding: 8px 14px;
+  font-size: 13px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* --- ペアリング案内 --- */
+.pairscreen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.pairbox {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 22px;
+  text-align: center;
+  max-width: 340px;
+}
+.pairbox .pairicon { font-size: 40px; margin-bottom: 10px; }
+.pairbox h2 { font-size: 17px; color: var(--accent); margin-bottom: 10px; }
+.pairbox p { font-size: 14px; color: var(--muted); line-height: 1.8; }
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msg {
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.ai h1, .msg.ai h2, .msg.ai h3 { font-size: 15px; margin: 8px 0 4px; font-weight: bold; }
+.msg.ai h1:first-child, .msg.ai h2:first-child, .msg.ai h3:first-child { margin-top: 0; }
+.msg.ai p { margin: 0 0 8px; }
+.msg.ai p:last-child { margin-bottom: 0; }
+.msg.ai ul, .msg.ai ol { margin: 4px 0 8px; padding-left: 22px; }
+.msg.ai li { margin: 2px 0; }
+.msg.ai code {
+  background: rgba(0,0,0,0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.92em;
+}
+.msg.ai pre {
+  background: rgba(0,0,0,0.05);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.msg.ai pre code { background: none; padding: 0; }
+.msg.ai a { color: var(--accent); }
+
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg.ai { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.error { align-self: center; background: #fdecec; color: #8f2323; border: 1px solid #f0c3c3; font-size: 13px; }
+.msg.sys { align-self: center; background: transparent; color: var(--muted); font-size: 12px; padding: 2px 8px; }
+.msg.pending { color: var(--muted); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+/* --- 許可カード・選択肢カード（デスクトップ版と同じ見た目、ボタンだけ大きく） --- */
+.permcard {
+  align-self: stretch;
+  background: #fff8e6;
+  border: 1px solid #e6d9a8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.permcard .pc-head { margin-bottom: 6px; }
+.permcard .pc-head b { color: #6b5900; }
+.permcard pre {
+  margin: 0 0 8px;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.permcard .pc-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.permcard button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  min-height: 44px;
+}
+.permcard button.pc-allow { background: var(--accent); color: #fff; border-color: var(--accent); }
+.permcard.answered { opacity: 0.7; }
+.permcard .pc-result { color: var(--muted); font-size: 12px; }
+.choicecard { background: var(--accent-weak); border-color: #bfe0d4; }
+.choicecard .pc-btns button { border-color: #bfe0d4; }
+
+footer {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 8px 10px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  flex-shrink: 0;
+}
+.inputRow { display: flex; gap: 8px; align-items: flex-end; }
+textarea {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 16px; /* 16px未満だとiOSがフォーカス時に自動ズームする */
+  resize: none;
+  max-height: 120px;
+}
+textarea:focus { outline: 2px solid var(--accent-weak); border-color: var(--accent); }
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 15px;
+  min-height: 44px;
+}
+button.primary:disabled { opacity: 0.5; }
+#stopBtn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 15px;
+  min-height: 44px;
+}

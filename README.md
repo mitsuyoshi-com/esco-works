@@ -38,6 +38,20 @@ npm run dist
 
 モデルはモードごとに⚙設定で変更可（Haiku 4.5 / Sonnet 5 / Opus 5）。
 
+## スマホ連携（リモートチャット）
+
+⚙設定 →「スマホ連携」で方式を選ぶと、スマホのブラウザからチャットモードだけ使える。
+
+| 方式 | 仕組み | QR読み取り | PC停止中 |
+|---|---|---|---|
+| かんたん接続 | `remote.js` + `tunnel.js`（Cloudflare Quick Tunnel、cloudflared.exe同梱） | アプリ起動のたび | 使えない |
+| サーバー経由 | `relayClient.js` が中継サーバー（`server/`、VPS上）へ外向きWS常駐 | 初回1回だけ | サーバーのクラウド頭脳がチャットのみ代打（readonly固定）＋会話はPC復帰時に引き継ぎ |
+
+共通の制限: リモートは常に チャットモード / 作業フォルダなし / ノーマル許可 に固定。書き込み系の操作は承認カードがスマホに出る。スマホUIは `renderer/mobile/`（両方式共通）。
+
+- サーバー経由の設定: 管理者が `server/scripts/make-connect-code.mjs` で生成した「接続コード」を設定画面に貼るだけ。サーバー構築は `server/README.md`
+- 検証: `npm run remote-sim` / `npm run relay-sim`（いずれもAPIコスト0） / `electron . --remotetest`（トンネル疎通） / `electron . --relaytest`（中継サーバー疎通、`ESCO_TEST_RELAY_URL`・`ESCO_TEST_ORG_KEY` で接続先指定）
+
 ## 並行作業と資料の渡し方
 
 - **🪟 新しいウィンドウ** — ウィンドウごとに独立した会話・作業フォルダ・AI実行。

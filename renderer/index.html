@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:" />
   <title>ESCO Works</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -88,12 +88,39 @@
     <label class="chk">
       <input type="checkbox" id="setBrowser" /> ブラウザ操作を有効化（AIがChromeでWeb操作できます。※応答が10秒ほど遅くなります。必要なときだけON推奨）
     </label>
+    <fieldset>
+      <legend>スマホ連携</legend>
+      <div class="remote-modes">
+        <label class="chk"><input type="radio" name="remoteMode" value="off" /> 使わない</label>
+        <label class="chk"><input type="radio" name="remoteMode" value="tunnel" /> かんたん接続（サーバー不要。アプリを起動し直すたびにQRを読み直します）</label>
+        <label class="chk"><input type="radio" name="remoteMode" value="relay" /> サーバー経由（QRは初回だけ。パソコンが起きていない間もチャットだけ使えます）</label>
+      </div>
+      <label id="connectCodeRow" hidden>接続コード（管理者から届いたものを貼り付け）
+        <input type="text" id="setConnectCode" placeholder="ESCO1.……" />
+      </label>
+      <div id="remoteStatus" class="remote-status"></div>
+      <div class="remote-actions">
+        <button id="remoteQrBtn" type="button" hidden>📱 QRコードを表示</button>
+      </div>
+      <div id="remoteDevices" class="remote-devices"></div>
+      <div id="remoteHint" class="remote-hint"></div>
+    </fieldset>
     <div class="dlgBtns">
       <button id="setSave" class="primary">保存</button>
       <button id="setCancel">閉じる</button>
     </div>
   </dialog>
 
+  <dialog id="qrDlg">
+    <h3>スマホで読み取ってください</h3>
+    <div class="qrBox"><img id="qrImg" alt="QRコード" /></div>
+    <p class="qrHint">スマホのカメラでこのQRコードを読み取ると、ブラウザでESCO Worksのチャットが開きます。<br>QRコードの有効期限は10分です（1台につき1回読み取り）。</p>
+    <div class="dlgBtns">
+      <button id="qrClose" class="primary">閉じる</button>
+    </div>
+  </dialog>
+
+  <script src="shared/md.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

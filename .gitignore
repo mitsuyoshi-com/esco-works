@@ -1,6 +1,10 @@
 node_modules/
 dist/
 build/shots/
+# cloudflared.exe（約55MB）はビルド時に scripts/fetch-cloudflared.mjs で取得する
+vendor/
+# 中継サーバーのローカル開発データ（トークン等を含む）
+server/data/
 # 機密（更新用トークンを含む）はコミットしない。配布ビルド時にのみ配置する。
 build/update-config.json
 test/

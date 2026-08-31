@@ -16,87 +16,7 @@ let currentAiRaw = '' // ストリーミング中のAI応答の生テキスト�
 let settingsCache = null
 let monthUsd = 0
 
-/* --- 軽量Markdown → HTML（外部ライブラリ不使用・安全にエスケープしてから整形） --- */
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
-}
-function inlineMd(s) {
-  // この時点でsはエスケープ済み。インライン記法だけHTML化する。
-  s = s.replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`)
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
-  return s
-}
-function md(text) {
-  const lines = escapeHtml(text).split('\n')
-  let html = ''
-  let inCode = false
-  let listType = null // 'ul' | 'ol'
-  const closeList = () => {
-    if (listType) {
-      html += listType === 'ul' ? '</ul>' : '</ol>'
-      listType = null
-    }
-  }
-  let para = []
-  const flushPara = () => {
-    if (para.length) {
-      html += `<p>${inlineMd(para.join('<br>'))}</p>`
-      para = []
-    }
-  }
-  for (const raw of lines) {
-    const line = raw
-    if (/^```/.test(line.trim())) {
-      flushPara()
-      closeList()
-      if (!inCode) {
-        html += '<pre><code>'
-        inCode = true
-      } else {
-        html += '</code></pre>'
-        inCode = false
-      }
-      continue
-    }
-    if (inCode) {
-      html += line + '\n'
-      continue
-    }
-    const h = line.match(/^(#{1,3})\s+(.*)$/)
-    if (h) {
-      flushPara()
-      closeList()
-      const lvl = h[1].length
-      html += `<h${lvl}>${inlineMd(h[2])}</h${lvl}>`
-      continue
-    }
-    const ul = line.match(/^\s*[-*・]\s+(.*)$/)
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/)
-    if (ul || ol) {
-      flushPara()
-      const want = ul ? 'ul' : 'ol'
-      if (listType !== want) {
-        closeList()
-        html += want === 'ul' ? '<ul>' : '<ol>'
-        listType = want
-      }
-      html += `<li>${inlineMd((ul || ol)[1])}</li>`
-      continue
-    }
-    if (line.trim() === '') {
-      flushPara()
-      closeList()
-      continue
-    }
-    para.push(line)
-  }
-  if (inCode) html += '</code></pre>'
-  flushPara()
-  closeList()
-  return html
-}
+/* Markdown整形（escapeHtml / inlineMd / md）は shared/md.js で読み込み済み */
 
 // ユーザーが最下部付近にいるか（自動スクロールしてよいか）を追記の前に判定する
 function nearBottom() {
@@ -407,14 +327,15 @@ window.escoAI.on('agent:tool', ({ tool }) => {
   currentAiRaw = ''
   showPending(tool) // 実行中のアクションを吹き出しで見せる
 })
-window.escoAI.on('agent:done', async ({ costUsd }) => {
+window.escoAI.on('agent:done', () => {
   clearPending()
   clearAsks() // ターン終了で残った承認バーを片付ける
   $('toolStatus').textContent = ''
-  if (costUsd > 0) {
-    monthUsd = await window.escoAI.addUsage(costUsd)
-    updateCost()
-  }
+})
+// 利用額はmain側で一元計上され、更新がここに届く（スマホからの利用分も含む）
+window.escoAI.on('usage:updated', ({ monthUsd: usd }) => {
+  monthUsd = usd
+  updateCost()
 })
 window.escoAI.on('agent:error', ({ message }) => {
   clearPending()
@@ -540,6 +461,11 @@ $('settingsBtn').addEventListener('click', async () => {
   $('mDocs').value = settingsCache.models.docs
   $('mFiles').value = settingsCache.models.files
   $('setBrowser').checked = !!settingsCache.enableBrowser
+  try {
+    renderRemoteStatus(await window.escoAI.remoteStatus())
+  } catch {
+    /* 表示のみの失敗は無視 */
+  }
   $('settingsDlg').showModal()
 })
 $('setCancel').addEventListener('click', () => $('settingsDlg').close())
@@ -559,6 +485,98 @@ $('setSave').addEventListener('click', async () => {
   if (next.apiKey) $('keyWarn').hidden = true
   $('settingsDlg').close()
 })
+
+/* --- スマホ連携（設定ダイアログ内） --- */
+const REMOTE_STATE_LABELS = {
+  stopped: '停止中',
+  starting: '起動中…（10秒ほどかかります）',
+  up: '接続受付中',
+  restarting: '再接続中…',
+  connecting: 'サーバーへ接続中…',
+  connected: 'サーバー接続中',
+  reconnecting: 'サーバーへ再接続中…',
+  error: 'エラー'
+}
+const REMOTE_HINTS = {
+  off: '',
+  tunnel: '外出先から使うには、このパソコンを起動したままにしてください。アプリを起動し直したときは、QRコードをもう一度読み取る必要があります。',
+  relay:
+    'QRコードの読み取りは初回の1回だけです。パソコン起動中はファイル作業もスマホから頼めます。パソコンが起きていない間は、サーバーがチャットだけ代わりに応答します。'
+}
+function renderRemoteStatus(st) {
+  const mode = st.mode || 'off'
+  for (const r of document.querySelectorAll('input[name="remoteMode"]')) r.checked = r.value === mode
+  $('connectCodeRow').hidden = mode !== 'relay'
+  if (st.hasConnectCode && !$('setConnectCode').value) $('setConnectCode').value = '設定済み'
+  $('remoteHint').textContent = REMOTE_HINTS[mode] || ''
+  const label = REMOTE_STATE_LABELS[st.state] || st.state
+  $('remoteStatus').textContent = mode === 'off' ? '' : `状態: ${label}${st.message ? `（${st.message}）` : ''}`
+  const ready = (mode === 'tunnel' && st.state === 'up') || (mode === 'relay' && st.state === 'connected')
+  $('remoteQrBtn').hidden = !ready
+  const box = $('remoteDevices')
+  box.innerHTML = ''
+  if (mode !== 'off' && st.devices && st.devices.length) {
+    for (const d of st.devices) {
+      const row = document.createElement('div')
+      row.className = 'remote-device'
+      const name = document.createElement('span')
+      const extra = d.connected ? '（接続中）' : d.pendingHandoff > 0 ? `（外出中の会話 ${d.pendingHandoff}件）` : ''
+      name.textContent = `${d.name}${extra}`
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.textContent = '解除'
+      btn.addEventListener('click', async () => {
+        renderRemoteStatus(await window.escoAI.remoteRevoke(d.deviceId))
+      })
+      row.append(name, btn)
+      box.appendChild(row)
+    }
+  }
+}
+// 方式の切り替えは保存ボタンを待たずに即反映（起動に時間がかかるため状態を見せる）
+for (const r of document.querySelectorAll('input[name="remoteMode"]')) {
+  r.addEventListener('change', async () => {
+    if (!r.checked) return
+    if (r.value === 'relay') {
+      // 未保存の接続コードが入力欄にあれば先に登録する
+      const code = $('setConnectCode').value.trim()
+      if (code && code !== '設定済み') {
+        const res = await window.escoAI.remoteSetConnectCode(code)
+        if (res.error) {
+          $('remoteStatus').textContent = `状態: エラー（${res.error}）`
+          return
+        }
+        $('setConnectCode').value = '設定済み'
+      }
+    }
+    renderRemoteStatus(await window.escoAI.remoteSetMode(r.value))
+  })
+}
+// 接続コードの貼り付け → フォーカスが外れたタイミングで保存
+$('setConnectCode').addEventListener('change', async () => {
+  const code = $('setConnectCode').value.trim()
+  if (!code || code === '設定済み') return
+  const res = await window.escoAI.remoteSetConnectCode(code)
+  if (res.error) {
+    $('remoteStatus').textContent = `状態: エラー（${res.error}）`
+  } else {
+    $('setConnectCode').value = '設定済み'
+    renderRemoteStatus(await window.escoAI.remoteStatus())
+  }
+})
+window.escoAI.on('remote:changed', (st) => {
+  if ($('settingsDlg').open) renderRemoteStatus(st)
+})
+$('remoteQrBtn').addEventListener('click', async () => {
+  const r = await window.escoAI.remoteQr()
+  if (r.error) {
+    $('remoteStatus').textContent = `状態: エラー（${r.error}）`
+    return
+  }
+  $('qrImg').src = r.dataUrl
+  $('qrDlg').showModal()
+})
+$('qrClose').addEventListener('click', () => $('qrDlg').close())
 
 /* --- 自動アップデートの通知 --- */
 window.escoAI.on('update:status', (s) => {

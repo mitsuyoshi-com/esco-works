@@ -224,8 +224,9 @@ class AgentRunner {
       // バイパスモード: すべて自動許可（上級者向け・自己責任）
       if (this._permMode === 'bypass') return { behavior: 'allow', updatedInput: input }
 
-      // Planモード: 一切作らない。読み取り・調査系のみ許可し、変更系は全て拒否する。
-      if (this._permMode === 'plan') {
+      // Plan/readonlyモード: 一切作らない。読み取り・調査系のみ許可し、変更系は全て拒否する。
+      // readonly = 中継サーバーのクラウド頭脳用（スマホの承認タップでサーバー上のコマンドが動く事故を構造的に防ぐ）
+      if (this._permMode === 'plan' || this._permMode === 'readonly') {
         if (READONLY_TOOLS.has(toolName) || toolName === 'WebSearch' || toolName === 'WebFetch') {
           return { behavior: 'allow', updatedInput: input }
         }
@@ -250,10 +251,13 @@ class AgentRunner {
             return { behavior: 'allow', updatedInput: input }
           }
         }
-        // それ以外（Write/Edit/mkdir/その他の実行）は計画段階では行わない
+        // それ以外（Write/Edit/mkdir/その他の実行）は行わない
         return {
           behavior: 'deny',
-          message: 'Planモード中です。まず計画を提示し、実行はモードを切り替えてから行います。'
+          message:
+            this._permMode === 'readonly'
+              ? 'サーバー上で応答中のため、この操作はできません（パソコンのESCO Works起動中はフル機能が使えます）。'
+              : 'Planモード中です。まず計画を提示し、実行はモードを切り替えてから行います。'
         }
       }
 
@@ -349,6 +353,11 @@ class AgentRunner {
 - 現在はPlanモードです。ファイルの作成・編集・コマンド実行は一切行いません。
 - まず必要に応じて読み取り・調査だけを行い、その上で「何を・どの順で行うか」の計画を箇条書きで提示してください。
 - 計画を提示したらそこで止まり、ユーザーの承認を待ってください。勝手に制作を始めないこと。`
+    }
+    if (this._permMode === 'readonly') {
+      append += `
+- 現在はサーバー上で応答しています（ユーザーのパソコンは起動していません）。ファイルの作成・編集・パソコンの操作はできません。
+- そうした依頼を受けたら「パソコンのESCO Worksが起動しているときにできます」と一言案内し、いまできる範囲（相談・調べもの・文章の下書き）で最大限手伝ってください。下書きは本文をチャットにそのまま書いて渡します。`
     }
     if (!workFolder) {
       append += `

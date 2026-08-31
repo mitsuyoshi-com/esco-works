@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'" />
+  <title>ESCO Works</title>
+  <link rel="stylesheet" href="mobile.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">ESCO Works <span class="sub">スマホ版</span></div>
+    <div class="spacer"></div>
+    <button id="newChatBtn" class="ghost" title="会話をリセット">🆕</button>
+  </header>
+
+  <div id="connBar" class="connbar" hidden>接続が切れました。再接続しています…</div>
+
+  <!-- ペアリング前 / トークン失効時の案内 -->
+  <div id="pairScreen" class="pairscreen" hidden>
+    <div class="pairbox">
+      <div class="pairicon">📱</div>
+      <h2>接続の準備が必要です</h2>
+      <p id="pairMsg">パソコンのESCO Worksで ⚙設定 →「スマホ連携」のQRコードを、このスマホで読み取ってください。</p>
+    </div>
+  </div>
+
+  <main id="messages"></main>
+
+  <footer>
+    <div class="inputRow">
+      <textarea id="input" rows="1" placeholder="メッセージを入力"></textarea>
+      <button id="sendBtn" class="primary">送信</button>
+      <button id="stopBtn" hidden>停止</button>
+    </div>
+  </footer>
+
+  <script src="shared/md.js"></script>
+  <script src="mobile.js"></script>
+</body>
+</html>

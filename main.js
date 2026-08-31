@@ -1,11 +1,15 @@
 // エスコAIアシスタント Electronメインプロセス
 // ウィンドウごとに独立した会話・作業フォルダ・AgentRunnerを持つ（複数同時作業対応）
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { loadSettings, saveSettings, addUsage, monthUsage } = require('./settings')
 const { AgentRunner } = require('./agent')
 const { setupAutoUpdate } = require('./updater')
+const { RemoteServer } = require('./remote')
+const { Tunnel } = require('./tunnel')
+const { RelayClient } = require('./relayClient')
+const { randomUUID } = require('crypto')
 
 let settings = null
 // webContents.id -> { win, runner, workFolder }
@@ -17,11 +21,181 @@ function emitAll(ev, payload) {
   for (const st of windows.values()) st.emit(ev, payload)
 }
 
+// 利用額の一元計上: AgentRunnerのemitをラップし、agent:doneのコストをmain側で積算する。
+// PCウィンドウ・スマホどちらのターンもここを通るため、二重計上・未計上が起きない。
+function wrapUsageAccounting(emit) {
+  return (ev, payload) => {
+    if (ev === 'agent:done' && payload && payload.costUsd > 0) {
+      const monthUsd = addUsage(payload.costUsd)
+      emitAll('usage:updated', { monthUsd })
+    }
+    emit(ev, payload)
+  }
+}
+
 // 作業フォルダ未選択時にAIのcwdとして使うスクラッチ領域（ユーザーには見せない）
 function scratchDir() {
   const p = path.join(app.getPath('userData'), 'scratch')
   fs.mkdirSync(p, { recursive: true })
   return p
+}
+
+/* --- スマホ連携（リモートチャット） ---
+   mode='tunnel': RemoteServer(127.0.0.1) + Cloudflare Quick Tunnel（QRを毎回読む・サーバー不要）
+   mode='relay' : 中継サーバー(server/)へ外向きWS常駐（QRは初回だけ・PC停止中もクラウドがチャット代打） */
+const remote = {
+  server: null, // tunnel用RemoteServer
+  tunnel: null,
+  relay: null, // relay用RelayClient
+  relayDevices: [], // サーバー由来の端末一覧キャッシュ
+  status: { state: 'stopped' }, // stopped | starting | up | restarting | error | connecting | connected | reconnecting
+  blockerId: null
+}
+
+// スマホ用のcwd（PC用scratchと分離。デバイスごとに独立）
+function remoteScratchDir(deviceId) {
+  const p = path.join(app.getPath('userData'), 'remote-scratch', String(deviceId).slice(0, 16))
+  fs.mkdirSync(p, { recursive: true })
+  return p
+}
+
+function remoteMode() {
+  return (settings.remote && settings.remote.mode) || 'off'
+}
+
+function remoteStatusPayload() {
+  const mode = remoteMode()
+  return {
+    mode,
+    enabled: mode !== 'off', // 旧UI互換
+    hasConnectCode: !!(settings.relay && settings.relay.url && settings.relay.orgKey),
+    ...remote.status,
+    devices: mode === 'relay' ? remote.relayDevices : remote.server ? remote.server.listDevices() : []
+  }
+}
+
+function setRemoteStatus(status) {
+  remote.status = status
+  emitAll('remote:changed', remoteStatusPayload())
+}
+
+async function startRemote() {
+  if (remote.server) return
+  const server = new RemoteServer({
+    getSettings: () => settings,
+    createRunner: (emit) => new AgentRunner({ getSettings: () => settings, emit: wrapUsageAccounting(emit) }),
+    scratchDirFor: remoteScratchDir,
+    staticDir: path.join(__dirname, 'renderer', 'mobile'),
+    onDevicePaired: (entry) => {
+      // ペアリング履歴（表示・監査用）。トークンは保存しない
+      settings.remoteDevices = [...(settings.remoteDevices || []), entry].slice(-20)
+      saveSettings(settings)
+      emitAll('remote:changed', remoteStatusPayload())
+    },
+    onDeviceSeen: () => {},
+    log: (m) => console.log(m)
+  })
+  server.version = app.getVersion()
+  remote.server = server
+  remote.tunnel = new Tunnel({
+    onStatus: (status) => setRemoteStatus(status),
+    log: (m) => console.log(m)
+  })
+  try {
+    const port = await server.listen()
+    console.log(`[remote] listening on 127.0.0.1:${port}`)
+    await remote.tunnel.start(port)
+    // スマホ連携ON中はPCのスリープで切れないようにする
+    if (remote.blockerId === null) remote.blockerId = powerSaveBlocker.start('prevent-app-suspension')
+  } catch (e) {
+    console.log('[remote] start failed:', e && e.message)
+    stopRemote(false)
+    setRemoteStatus({ state: 'error', message: (e && e.message) || 'スマホ連携を開始できませんでした' })
+  }
+}
+
+/* --- サーバー経由（relay）モード --- */
+
+// このPCの識別子を初回に生成して保存する（pcSecretはサーバーがTOFUで発行）
+function ensureRelayIdentity() {
+  if (!settings.relay.pcId) {
+    settings.relay = { ...settings.relay, pcId: randomUUID().replace(/-/g, '') }
+    saveSettings(settings)
+  }
+}
+
+function startRelay() {
+  if (remote.relay) return
+  if (!settings.relay.url || !settings.relay.orgKey) {
+    setRemoteStatus({ state: 'error', message: '接続コードを設定してください' })
+    return
+  }
+  ensureRelayIdentity()
+  const relay = new RelayClient({
+    getConfig: () => ({
+      url: settings.relay.url,
+      orgKey: settings.relay.orgKey,
+      pcId: settings.relay.pcId,
+      pcSecret: settings.relay.pcSecret,
+      userName: settings.userName,
+      version: app.getVersion()
+    }),
+    savePcSecret: (pcSecret) => {
+      settings.relay = { ...settings.relay, pcSecret }
+      saveSettings(settings)
+    },
+    createRunner: (emit) => new AgentRunner({ getSettings: () => settings, emit: wrapUsageAccounting(emit) }),
+    scratchDirFor: remoteScratchDir,
+    handoffDir: path.join(app.getPath('userData'), 'cloud-handoff'),
+    onStatus: (status) => setRemoteStatus(status),
+    onDevices: (devices) => {
+      remote.relayDevices = devices
+      emitAll('remote:changed', remoteStatusPayload())
+    },
+    log: (m) => console.log(m)
+  })
+  remote.relay = relay
+  relay.start()
+  if (remote.blockerId === null) remote.blockerId = powerSaveBlocker.start('prevent-app-suspension')
+}
+
+function stopRemote(notify = true) {
+  if (remote.tunnel) {
+    remote.tunnel.onStatus = () => {} // stop()内のstatus通知は自前でまとめて出す
+    remote.tunnel.stop()
+    remote.tunnel = null
+  }
+  if (remote.server) {
+    remote.server.close()
+    remote.server = null
+  }
+  if (remote.relay) {
+    remote.relay.onStatus = () => {}
+    remote.relay.stop()
+    remote.relay = null
+    remote.relayDevices = []
+  }
+  if (remote.blockerId !== null) {
+    try {
+      powerSaveBlocker.stop(remote.blockerId)
+    } catch {
+      /* ignore */
+    }
+    remote.blockerId = null
+  }
+  if (notify) setRemoteStatus({ state: 'stopped' })
+  else remote.status = { state: 'stopped' }
+}
+
+// 方式の切り替え（設定UIから）。enabledはトンネル用RemoteServerが参照する導出値
+async function setRemoteMode(mode) {
+  stopRemote(false)
+  settings.remote = { ...settings.remote, mode, enabled: mode === 'tunnel' }
+  saveSettings(settings)
+  if (mode === 'tunnel') await startRemote()
+  else if (mode === 'relay') startRelay()
+  else setRemoteStatus({ state: 'stopped' })
+  return remoteStatusPayload()
 }
 
 function createWindow() {
@@ -48,7 +222,7 @@ function createWindow() {
     win,
     emit,
     workFolder: null, // 未選択で開始。選択しなくても会話は動く
-    runner: new AgentRunner({ getSettings: () => settings, emit }),
+    runner: new AgentRunner({ getSettings: () => settings, emit: wrapUsageAccounting(emit) }),
     watcher: null,
     watchTimer: null
   }
@@ -241,13 +415,191 @@ app.whenReady().then(async () => {
   )
 
   ipcMain.on('window:new', () => createWindow())
-  ipcMain.handle('usage:add', (_e, costUsd) => addUsage(costUsd))
   ipcMain.on('update:install', () => updater && updater.quitAndInstall())
+
+  /* --- スマホ連携のIPC --- */
+  ipcMain.handle('remote:setMode', (_e, mode) => {
+    if (!['off', 'tunnel', 'relay'].includes(mode)) mode = 'off'
+    return setRemoteMode(mode)
+  })
+  // 接続コード（ESCO1.base64url({u:サーバーURL, k:組織キー})）の登録
+  ipcMain.handle('remote:setConnectCode', (_e, code) => {
+    try {
+      const m = String(code || '').trim().match(/^ESCO1\.([A-Za-z0-9_-]+)$/)
+      if (!m) throw new Error('bad format')
+      const obj = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8'))
+      const url = String(obj.u || '').replace(/\/$/, '')
+      const key = String(obj.k || '')
+      // 誤入力対策: httpsのみ許可（開発用にlocalhost/127.0.0.1のhttpだけ例外）
+      if (!/^https:\/\//i.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(url)) throw new Error('bad url')
+      if (!/^[0-9a-f]{16,64}$/i.test(key)) throw new Error('bad key')
+      settings.relay = { ...settings.relay, url, orgKey: key }
+      saveSettings(settings)
+      // relayモード稼働中なら新しい接続先で張り直す
+      if (remoteMode() === 'relay') {
+        stopRemote(false)
+        startRelay()
+      }
+      return { ok: true, url }
+    } catch {
+      return { error: '接続コードが正しくありません。管理者から届いたコードをそのまま貼り付けてください。' }
+    }
+  })
+  ipcMain.handle('remote:status', () => remoteStatusPayload())
+  // QRコード生成: 表示のたびにワンタイムコードを再発行する（有効10分・1回限り）
+  ipcMain.handle('remote:qr', async () => {
+    const QRCode = require('qrcode')
+    if (remoteMode() === 'relay') {
+      if (!remote.relay) return { error: 'サーバー経由の連携が起動していません' }
+      try {
+        const { url } = await remote.relay.requestPairCode()
+        const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 2 })
+        return { dataUrl, url: settings.relay.url, once: true }
+      } catch (e) {
+        return { error: (e && e.message) || 'QRコードを発行できませんでした' }
+      }
+    }
+    if (!remote.server || !remote.tunnel || !remote.tunnel.url) {
+      return { error: remote.status.message || 'スマホ連携が起動していません' }
+    }
+    const code = remote.server.regeneratePairCode()
+    const url = `${remote.tunnel.url}/#p=${code}`
+    const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 2 })
+    return { dataUrl, url: remote.tunnel.url }
+  })
+  ipcMain.handle('remote:revoke', (_e, deviceId) => {
+    if (remoteMode() === 'relay' && remote.relay) remote.relay.revoke(deviceId)
+    else if (remote.server) remote.server.revokeDevice(deviceId)
+    return remoteStatusPayload()
+  })
+
+  // 配布版検証モード: GUIなしでRemoteServer+トンネル起動→自URLへ疎通確認→終了
+  if (process.argv.includes('--remotetest')) {
+    console.log('[remotetest] start')
+    const prevEnabled = settings.remote && settings.remote.enabled
+    settings.remote = { ...(settings.remote || {}), enabled: true }
+    try {
+      await startRemote()
+      if (!remote.tunnel || !remote.tunnel.url) throw new Error('tunnel url not obtained')
+      console.log('[remotetest] tunnel url =', remote.tunnel.url)
+      const host = new URL(remote.tunnel.url).hostname
+      const checkBody = (status, body) => status === 200 && body.includes('ESCO Works')
+      // 1) 通常のfetch（DNS払い出し直後は引けないことがあるため数回リトライ）
+      let ok = false
+      let directDnsFailed = false
+      for (let i = 1; i <= 3 && !ok; i++) {
+        try {
+          const res = await fetch(remote.tunnel.url, { redirect: 'follow' })
+          ok = checkBody(res.status, await res.text())
+          console.log(`[remotetest] GET / try${i} -> ${res.status} mobileUI=${ok ? 'OK' : 'NG'}`)
+        } catch (e) {
+          directDnsFailed = true
+          console.log(`[remotetest] GET / try${i} -> ${e && e.message}`)
+          await new Promise((r) => setTimeout(r, 4000))
+        }
+      }
+      // 2) 失敗時: ルーター/ISPのDNSがtrycloudflareをブロックしている環境向けに、
+      //    1.1.1.1のDoHで解決してIP直結（SNIはホスト名のまま）で再確認する
+      if (!ok) {
+        try {
+          const doh = await fetch(`https://1.1.1.1/dns-query?name=${host}&type=A`, {
+            headers: { accept: 'application/dns-json' }
+          })
+          const ans = (await doh.json()).Answer || []
+          const ip = (ans.find((a) => a.type === 1) || {}).data
+          if (!ip) throw new Error('DoH: no A record')
+          console.log(`[remotetest] DoH resolved ${host} -> ${ip}`)
+          const https = require('https')
+          const body = await new Promise((resolve, reject) => {
+            const req = https.request(
+              { host: ip, servername: host, headers: { Host: host }, path: '/', timeout: 15000 },
+              (res) => {
+                let buf = ''
+                res.on('data', (c) => (buf += c))
+                res.on('end', () => resolve({ status: res.statusCode, text: buf }))
+              }
+            )
+            req.on('error', reject)
+            req.on('timeout', () => req.destroy(new Error('timeout')))
+            req.end()
+          })
+          ok = checkBody(body.status, body.text)
+          console.log(`[remotetest] GET / (via DoH) -> ${body.status} mobileUI=${ok ? 'OK' : 'NG'}`)
+          if (ok && directDnsFailed) {
+            console.log('[remotetest] 注意: このPCのDNSはtrycloudflareを解決できません（トンネル自体は正常）。同じWi-Fiのスマホも失敗する可能性がありますが、4G/5G回線からは使えます。')
+          }
+        } catch (e) {
+          console.log(`[remotetest] DoH fallback -> ${e && e.message}`)
+        }
+      }
+      console.log(ok ? '[remotetest] done' : '[remotetest] FAILED')
+    } catch (e) {
+      console.log('[remotetest] threw:', e && e.message)
+    }
+    stopRemote(false)
+    settings.remote = { ...(settings.remote || {}), enabled: !!prevEnabled }
+    app.quit()
+    return
+  }
+
+  // 配布版検証モード: 中継サーバーへの接続と資格情報の流れを検証（環境変数で接続先を指定）
+  //   ESCO_TEST_RELAY_URL / ESCO_TEST_ORG_KEY を設定して `ESCO Works.exe --relaytest`
+  if (process.argv.includes('--relaytest')) {
+    console.log('[relaytest] start')
+    const url = process.env.ESCO_TEST_RELAY_URL
+    const orgKey = process.env.ESCO_TEST_ORG_KEY
+    if (!url || !orgKey) {
+      console.log('[relaytest] ESCO_TEST_RELAY_URL / ESCO_TEST_ORG_KEY を設定してください')
+      app.quit()
+      return
+    }
+    settings.relay = { ...settings.relay, url: url.replace(/\/$/, ''), orgKey, pcId: '', pcSecret: '' }
+    settings.remote = { ...settings.remote, mode: 'relay', enabled: false }
+    ensureRelayIdentity()
+    let done = false
+    const finish = (ok, note) => {
+      if (done) return
+      done = true
+      console.log(`[relaytest] ${note}`)
+      console.log(ok ? '[relaytest] done' : '[relaytest] FAILED')
+      stopRemote(false)
+      app.quit()
+    }
+    remote.relay = new RelayClient({
+      getConfig: () => ({ ...settings.relay, userName: 'relaytest', version: app.getVersion() }),
+      savePcSecret: () => {},
+      createRunner: () => ({ startTurn: async () => {}, interrupt() {}, newConversation() {}, respondPermission() {}, respondChoice() {} }),
+      scratchDirFor: remoteScratchDir,
+      handoffDir: path.join(app.getPath('userData'), 'cloud-handoff-test'),
+      onStatus: async (st) => {
+        console.log('[relaytest] status =', JSON.stringify(st))
+        if (st.state === 'connected') {
+          try {
+            const { url: pairUrl } = await remote.relay.requestPairCode()
+            finish(true, `pair url = ${pairUrl}`)
+          } catch (e) {
+            finish(false, `pair:issue failed: ${e && e.message}`)
+          }
+        }
+        if (st.state === 'error') finish(false, st.message || 'error')
+      },
+      onDevices: () => {},
+      log: (m) => console.log(m)
+    })
+    remote.relay.start()
+    setTimeout(() => finish(false, 'timeout'), 30000)
+    return
+  }
 
   const win = createWindow()
 
   // 自動アップデート（配布ビルドのみ有効）
   updater = setupAutoUpdate(app, emitAll, (m) => console.log(m))
+
+  // 前回スマホ連携ONのまま終了していたら自動再開
+  // （tunnel: URLが変わるのでQR再読取が必要 / relay: 固定URLなのでそのまま復帰）
+  if (remoteMode() === 'tunnel') startRemote()
+  else if (remoteMode() === 'relay') startRelay()
 
   // UIテストモード: 画面のIPCブリッジ経由で自動送信し、配線を検証
   if (process.argv.includes('--uitest')) {
@@ -307,4 +659,9 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// 終了時にcloudflaredの子プロセスを確実に殺す
+app.on('will-quit', () => {
+  stopRemote(false)
 })

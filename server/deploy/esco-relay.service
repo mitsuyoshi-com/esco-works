@@ -1,0 +1,22 @@
+[Unit]
+Description=ESCO Works relay server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=esco
+Group=esco
+EnvironmentFile=/etc/esco-relay/env
+WorkingDirectory=/opt/esco-relay
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=3
+# 保存先以外は書かせない
+ProtectSystem=strict
+ReadWritePaths=/var/lib/esco-relay
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

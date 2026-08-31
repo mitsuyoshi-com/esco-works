@@ -11,7 +11,9 @@ const EVENTS = [
   'folder:changed',
   'settings:changed',
   'agent:choice',
-  'update:status'
+  'update:status',
+  'usage:updated',
+  'remote:changed'
 ]
 
 contextBridge.exposeInMainWorld('escoAI', {
@@ -19,8 +21,12 @@ contextBridge.exposeInMainWorld('escoAI', {
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   pickFolder: () => ipcRenderer.invoke('folder:pick'),
   send: (payload) => ipcRenderer.invoke('chat:send', payload),
-  addUsage: (usd) => ipcRenderer.invoke('usage:add', usd),
   interrupt: () => ipcRenderer.send('chat:interrupt'),
+  remoteSetMode: (mode) => ipcRenderer.invoke('remote:setMode', mode),
+  remoteSetConnectCode: (code) => ipcRenderer.invoke('remote:setConnectCode', code),
+  remoteStatus: () => ipcRenderer.invoke('remote:status'),
+  remoteQr: () => ipcRenderer.invoke('remote:qr'),
+  remoteRevoke: (deviceId) => ipcRenderer.invoke('remote:revoke', deviceId),
   newChat: () => ipcRenderer.send('chat:new'),
   newWindow: () => ipcRenderer.send('window:new'),
   installUpdate: () => ipcRenderer.send('update:install'),
