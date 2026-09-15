@@ -7,7 +7,12 @@ vendor/
 server/data/
 # 機密（更新用トークンを含む）はコミットしない。配布ビルド時にのみ配置する。
 build/update-config.json
-test/
+test/*
+!test/sessions-test.cjs
+!test/history-ui.cjs
+!test/workspace-test.cjs
+!test/workspace-ui.cjs
+build/upgrade-*.cjs
 
 build-elevated.ps1
 build-elevated.log

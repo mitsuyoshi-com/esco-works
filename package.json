@@ -1,6 +1,6 @@
 {
   "name": "esco-ai",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "ESCO Works - エスコ社内AIアシスタント (Claude Agent SDK × Electron)",
   "main": "main.js",
   "author": "ULTRIX",
@@ -33,6 +33,10 @@
     "afterPack": "./afterPack.js",
     "files": [
       "main.js",
+      "sessions.js",
+      "projects.js",
+      "business.js",
+      "folderQueue.js",
       "preload.js",
       "agent.js",
       "settings.js",

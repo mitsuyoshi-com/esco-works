@@ -67,6 +67,10 @@ function setBusy(b) {
   busy = b
   $('sendBtn').disabled = b
   $('stopBtn').hidden = !b
+  $('newChatBtn').disabled = sessionSwitchBusy
+  $('folderBtn').disabled = b
+  document.querySelectorAll('.mode').forEach(btn => { btn.disabled = b })
+  renderSessions()
   if (!b) $('toolStatus').textContent = ''
 }
 
@@ -82,6 +86,206 @@ function folderLabel(p) {
 }
 
 let hasFolder = false
+let editState = null
+let previewRequest = 0
+
+async function previewFile(file, name) {
+  const request = ++previewRequest
+  $('previewName').textContent = name
+  $('filePreview').textContent = '読み込み中…'
+  try { const result = await window.escoAI.preview(file); if (request === previewRequest) $('filePreview').textContent = result.text }
+  catch (e) { if (request === previewRequest) $('filePreview').textContent = e.message }
+}
+function editProject(project = null) {
+  editState = { type: 'project', project, folder: project?.folder || null }
+  $('editHeading').textContent = project ? 'プロジェクト設定' : '新しいプロジェクト'
+  $('editName').value = project?.name || ''
+  $('editName').parentElement.hidden = false
+  $('projectFields').hidden = false; $('moveField').hidden = true
+  $('projectFolderLabel').textContent = editState.folder || 'フォルダ未選択'
+  $('projectInstructions').value = project?.instructions || ''
+  $('editError').textContent = ''; $('editDlg').showModal()
+}
+function openSessionMenu(session) {
+  $('menuTitle').textContent = session.title
+  const box = $('sessionMenuActions'); box.replaceChildren()
+  const action = (label, fn) => { const btn = document.createElement('button'); btn.textContent = label; btn.addEventListener('click', async () => {
+    $('sessionMenuDlg').close()
+    try { await fn() } catch(e) { historyNotice(e.message) }
+  }); box.appendChild(btn) }
+  action('名前を変更', () => {
+    editState = {type:'rename',session}; $('editHeading').textContent = '名前を変更'; $('editName').value = session.title
+    $('editName').parentElement.hidden = false; $('projectFields').hidden = true; $('moveField').hidden = true; $('editError').textContent = ''; $('editDlg').showModal()
+  })
+  action('プロジェクトへ移動', () => {
+    editState = {type:'move',session}; $('editHeading').textContent = 'プロジェクトへ移動'
+    $('editName').parentElement.hidden = true; $('projectFields').hidden = true; $('moveField').hidden = false; $('moveProject').replaceChildren()
+    for (const p of [{id:'',name:'プロジェクト未所属'}, ...projects]) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; $('moveProject').appendChild(o) }
+    $('moveProject').value = session.projectId || ''; $('editError').textContent = ''; $('editDlg').showModal()
+  })
+  const update = async (type) => {
+    const value = await window.escoAI.updateSession({ id: session.id, action: type })
+    if (session.id === activeSessionId) applySession(value)
+    await refreshSessions()
+  }
+  action(session.pinned ? 'ピン留めを解除' : 'ピン留め', () => update('pin'))
+  if (session.archived || session.deleted) action('通常一覧へ復元', () => update('restore'))
+  else action('アーカイブ', () => update('archive'))
+  if (!session.deleted) action('ゴミ箱へ移動', () => update('trash'))
+  else action('完全に削除…', () => window.escoAI.purgeSession(session.id))
+  $('sessionMenuDlg').showModal()
+}
+async function businessRefresh() {
+  try { const state = await window.escoAI.businessStatus(); $('businessState').textContent = state.status }
+  catch(e) { $('businessState').textContent = e.message }
+}
+$('newProjectBtn').addEventListener('click', () => editProject())
+$('pickProjectFolder').addEventListener('click', async () => { const folder = await window.escoAI.projectFolder(); if (folder) { editState.folder = folder; $('projectFolderLabel').textContent = folder } })
+$('editCancel').addEventListener('click', () => $('editDlg').close())
+$('menuClose').addEventListener('click', () => $('sessionMenuDlg').close())
+$('editSave').addEventListener('click', async () => {
+  try {
+    if (editState.type === 'project') {
+      const p = await window.escoAI.saveProject({ id: editState.project?.id, name: $('editName').value, folder: editState.folder, instructions: $('projectInstructions').value }); selectedProject = p.id
+    } else {
+      const value = await window.escoAI.updateSession({ id: editState.session.id, action: editState.type, value: editState.type === 'move' ? $('moveProject').value : $('editName').value })
+      if (value.id === activeSessionId) { currentSession.title = value.title; $('sessionName').textContent = value.title }
+    }
+    $('editDlg').close(); await refreshSessions()
+  } catch(e) { $('editError').textContent = e.message }
+})
+$('businessBtn').addEventListener('click', async () => {
+  const existing = sessionItems.find(s => s.kind === 'business' && !s.deleted && !s.archived)
+  await switchSession(existing?.id || null, 'business')
+})
+$('businessFolderBtn').addEventListener('click', async () => { try { $('businessFolderPath').textContent = await window.escoAI.businessFolder() || '未設定'; businessRefresh() } catch(e) { historyNotice(e.message) } })
+$('businessRetry').addEventListener('click', async () => { await window.escoAI.businessSync(); businessRefresh() })
+window.escoAI.on('business:status', state => { $('businessState').textContent = state.status })
+$('shareWorkBtn').addEventListener('click', async () => {
+  if (busy) { historyNotice('作業完了後に共有してください'); return }
+  const text = [...$('messages').querySelectorAll('.msg.user')].map(el => el.textContent).join('\n\n')
+  if (!text) return
+  const existing = sessionItems.find(s => s.kind === 'business' && !s.deleted && !s.archived)
+  await switchSession(existing?.id || null, 'business')
+  if (currentSession?.kind !== 'business' || busy) return
+  $('input').value = '以下は私の作業に関する入力です。依頼や希望と、実際の業務について述べた事実を区別し、業務共有に整理してください。\n\n' + text
+  await send()
+})
+let sessionItems = []
+let projects = []
+let selectedProject = null
+let currentSession = null
+function messageMd(text) { return md(currentSession?.kind === 'business' ? text.replace(/```json[\s\S]*?(?:```|$)/g, '').trim() : text) }
+const drafts = new Map()
+const collapsedProjects = new Set(JSON.parse(localStorage.getItem('collapsedProjects') || '[]'))
+let activeSessionId = null
+let sessionSwitchBusy = false
+let sessionListRequest = 0
+
+function historyNotice(message = '') {
+  $('historyNotice').textContent = message
+  $('historyNotice').hidden = !message
+}
+function renderSessions() {
+  const query = $('sessionSearch').value.trim().toLocaleLowerCase()
+  const filter = $('historyFilter').value
+  const list = $('sessionList'); list.replaceChildren()
+  const items = sessionItems.filter(s => (filter === 'trash' ? s.deleted : filter === 'archive' ? s.archived && !s.deleted : !s.archived && !s.deleted) && s.title.toLocaleLowerCase().includes(query))
+  function row(s, parent) {
+    const wrap = document.createElement('div'); wrap.className = 'session-row'
+    const btn = document.createElement('button'); btn.className = 'session-item' + (s.id === activeSessionId ? ' active' : '')
+    btn.disabled = sessionSwitchBusy; btn.setAttribute('aria-current', s.id === activeSessionId ? 'true' : 'false')
+    btn.title = s.title + (s.workFolder ? '\n' + s.workFolder : '')
+    const title = document.createElement('span'); title.className = 'session-title'
+    title.textContent = (s.pinned ? '📌 ' : '') + s.title
+    const meta = document.createElement('span'); meta.className = 'session-meta'
+    meta.textContent = (s.unread ? '● 未読 · ' : '') + (s.status || '待機中') + (s.openElsewhere ? ' · 別ウィンドウ' : '')
+    btn.append(title, meta); btn.addEventListener('click', () => switchSession(s.id))
+    const menu = document.createElement('button'); menu.className = 'session-more'; menu.textContent = '…'; menu.title = s.title + ' の操作'
+    menu.addEventListener('click', () => openSessionMenu(s)); wrap.append(btn,menu); parent.appendChild(wrap)
+  }
+  if (filter === 'active') {
+    items.filter(s => s.pinned).forEach(s => row(s,list))
+    for (const p of [...projects, {id: null,name:'プロジェクト未所属'}]) {
+      const children = items.filter(s => !s.pinned && s.projectId === p.id)
+      if (query && !children.length) continue
+      const head = document.createElement('div'); head.className = 'project-head'
+      const toggle = document.createElement('button'); const folded = !query && collapsedProjects.has(p.id)
+      const activeCount = sessionItems.filter(s => s.projectId === p.id && s.busy).length
+      toggle.textContent = (folded ? '▶ ' : '▼ ') + p.name + (activeCount ? ' · ' + activeCount + '件実行中' : '')
+      toggle.title = p.folder || p.name
+      toggle.addEventListener('click', () => { selectedProject = p.id; collapsedProjects.has(p.id) ? collapsedProjects.delete(p.id) : collapsedProjects.add(p.id); localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects])); renderSessions() })
+      const add = document.createElement('button'); add.textContent = '+'; add.title = p.name + ' に会話を追加'; add.addEventListener('click', () => { selectedProject = p.id; switchSession() })
+      head.append(toggle,add)
+      if (p.id) { const edit = document.createElement('button'); edit.textContent = '…'; edit.title = 'プロジェクト設定'; edit.addEventListener('click', () => editProject(p)); head.appendChild(edit) }
+      list.appendChild(head)
+      if (!folded) { const group = document.createElement('div'); group.className = 'session-group'; children.forEach(s => row(s,group)); list.appendChild(group) }
+    }
+  } else items.forEach(s => row(s,list))
+  if (!items.length && (query || filter !== 'active')) { const hint = document.createElement('p'); hint.className = 'tree-empty'; hint.textContent = '該当する会話はありません。'; list.appendChild(hint) }
+}
+async function refreshSessions() {
+  const request = ++sessionListRequest
+  try {
+    const result = await window.escoAI.listSessions()
+    if (request !== sessionListRequest) return
+    sessionItems = result.items
+    projects = result.projects || []
+    activeSessionId = result.currentId
+    renderSessions()
+  } catch (e) { historyNotice(`履歴を取得できませんでした: ${e.message}`) }
+}
+function applySession(session) {
+  clearPending()
+  openCards.clear() // 切替では保留中の質問に回答しない
+  currentAiEl = null
+  currentAiRaw = ''
+  activeSessionId = session.id
+  currentSession = session
+  selectedProject = session.projectId || null
+  $('sessionName').textContent = session.title
+  $('businessBar').hidden = session.kind !== 'business'
+  $('shareWorkBtn').hidden = session.kind === 'business'
+  mode = session.mode || 'chat'
+  document.querySelectorAll('.mode').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode))
+  // Past permission grants are never silently re-enabled by opening history.
+  setPermMode('normal')
+  $('autoApprove').checked = false
+  $('input').value = drafts.get(session.id) || ''
+  $('messages').replaceChildren()
+  for (const m of session.messages) {
+    const el = addMsg(m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'ai', m.text)
+    if (m.role === 'ai') el.innerHTML = messageMd(m.text)
+  }
+  if (!session.messages.length) addMsg('ai', '新しい会話を始めました。会話は自動で履歴に保存されます。')
+  applyFolder(session.workFolder)
+  if (session.busy && session.messages.at(-1)?.role === 'ai') { currentAiEl = $('messages').lastElementChild; currentAiRaw = session.messages.at(-1).text }
+  for (const req of session.asks || []) addPermCard(req)
+  for (const req of session.choices || []) addChoiceCard(req)
+  setBusy(!!session.busy)
+  if (session.deleted || session.archived) { $('sendBtn').disabled = true; $('input').disabled = true } else $('input').disabled = false
+  businessRefresh()
+  historyNotice()
+  scrollToBottom()
+}
+async function switchSession(id = null, kind = null) {
+  if (sessionSwitchBusy || (id && id === activeSessionId)) return
+  drafts.set(activeSessionId, $('input').value)
+  sessionSwitchBusy = true
+  renderSessions()
+  try {
+    const session = id ? await window.escoAI.openSession(id) : await window.escoAI.newChat({ projectId: kind ? null : selectedProject, kind })
+    applySession(session)
+    await refreshSessions()
+  } catch (e) { historyNotice(e.message) }
+  finally { sessionSwitchBusy = false; $('newChatBtn').disabled = false; renderSessions() }
+}
+$('sessionSearch').addEventListener('input', renderSessions)
+$('historyFilter').addEventListener('change', renderSessions)
+window.escoAI.on('session:selected', applySession)
+window.escoAI.on('sessions:changed', refreshSessions)
+window.escoAI.on('history:error', ({ message }) => historyNotice(message))
+window.escoAI.on('chat:idle', () => { clearPending(); setBusy(false) })
 
 /* --- サイドバー（作業フォルダのファイルツリー） --- */
 const expanded = new Set()
@@ -111,7 +315,7 @@ async function buildTree(container, dirPath, depth) {
       e.dataTransfer.effectAllowed = 'copy'
     })
     el.addEventListener('click', () => {
-      if (!it.isDir) return
+      if (!it.isDir) { previewFile(it.path, it.name); return }
       expanded.has(it.path) ? expanded.delete(it.path) : expanded.add(it.path)
       refreshTree()
     })
@@ -131,8 +335,9 @@ async function buildTree(container, dirPath, depth) {
 }
 
 let treeBusy = false
+let treeAgain = false
 async function refreshTree() {
-  if (treeBusy) return
+  if (treeBusy) { treeAgain = true; return }
   treeBusy = true
   try {
     const tree = $('tree')
@@ -147,6 +352,7 @@ async function refreshTree() {
     await buildTree(tree, null, 0) // null = 作業フォルダのルート
   } finally {
     treeBusy = false
+    if (treeAgain) { treeAgain = false; refreshTree() }
   }
 }
 $('refreshBtn').addEventListener('click', refreshTree)
@@ -170,8 +376,11 @@ async function boot() {
   if (init.version) $('verLabel').textContent = 'v' + init.version
   updateCost()
   refreshTree()
-  // 初回（キー未設定）は設定画面を自動で開いて登録を促す
-  if (!init.hasApiKey) setTimeout(() => $('settingsBtn').click(), 700)
+  await refreshSessions()
+  // 更新直後も、業務共有の初期設定を案内する。
+  if (!init.hasApiKey || !settingsCache.userName?.trim() || !settingsCache.businessFolder) {
+    setTimeout(() => { if (!$('settingsDlg').open) $('settingsBtn').click() }, 700)
+  }
 
   for (const sel of ['mChat', 'mDocs', 'mFiles']) {
     for (const m of MODELS) {
@@ -181,7 +390,10 @@ async function boot() {
       $(sel).appendChild(o)
     }
   }
-  addMsg('ai', 'こんにちは。ESCO Worksです。\n上のタブで作業を選んでください。\n・チャット：相談や文章の下書き\n・資料作成：提案書や案内文をファイルに\n・フォルダ整理：📁で選んだフォルダの整理・リネーム\n\n資料（PDF等）はこの画面にドラッグ&ドロップで渡せます。\n🪟で別ウィンドウを開けば、別の作業を同時に進められます。')
+  if (init.session?.messages.length) applySession(init.session)
+  else addMsg('ai', 'こんにちは。ESCO Worksです。\n上のタブで作業を選んでください。会話はこのPCに自動保存されます。\n左のセッション履歴から過去の会話を開いて続けられます。\n\n資料（PDF等）はこの画面にドラッグ&ドロップで渡せます。\n🪟で別ウィンドウを開けば、別の作業を同時に進められます。')
+  setBusy(!!init.busy)
+  if (init.busy) showPending('作業中')
 }
 
 /* --- モード切替 --- */
@@ -225,8 +437,10 @@ setPermMode('normal')
 
 /* --- 送信 --- */
 async function send() {
+  const sentSession = activeSessionId
   const text = $('input').value.trim()
   if (!text || busy) return
+  if (currentSession?.kind === 'business' && !settingsCache.userName?.trim()) { $('settingsBtn').click(); return }
   $('input').value = ''
   addMsg('user', text)
   currentAiEl = null
@@ -234,12 +448,14 @@ async function send() {
   setBusy(true)
   showPending(permMode === 'plan' ? 'Planning' : 'Thinking')
   try {
-    await window.escoAI.send({ text, mode, autoApprove: $('autoApprove').checked, permMode })
+    await window.escoAI.send({ text, mode, autoApprove: $('autoApprove').checked, permMode, sessionId: sentSession })
   } catch (e) {
-    addMsg('error', String(e && e.message ? e.message : e))
+    if (activeSessionId === sentSession) {
+      addMsg('error', String(e && e.message ? e.message : e))
+      if (!$('input').value) $('input').value = text
+    }
   }
-  clearPending()
-  setBusy(false)
+  if (activeSessionId === sentSession) { clearPending(); setBusy(false) }
 }
 $('sendBtn').addEventListener('click', send)
 $('input').addEventListener('keydown', (e) => {
@@ -277,18 +493,13 @@ document.addEventListener('drop', (e) => {
 })
 
 /* --- 会話リセット --- */
-$('newChatBtn').addEventListener('click', () => {
-  window.escoAI.newChat() // main側で実行中ターンをinterruptしてからリセット
-  clearPending()
-  clearAsks()
-  currentAiEl = null
-  setBusy(false)
-  $('messages').innerHTML = ''
-  addMsg('ai', '新しい会話を始めました。')
-})
+$('newChatBtn').addEventListener('click', () => switchSession())
 
 /* --- 作業フォルダの表示反映（選択時・フォルダ消失時で共通） --- */
 function applyFolder(p) {
+  previewRequest++
+  $('previewName').textContent = 'ファイルプレビュー'
+  $('filePreview').textContent = 'ファイルをクリックすると内容を表示します。'
   hasFolder = !!p
   $('folderName').textContent = folderLabel(p)
   $('folderBtn').title = p || '作業フォルダを選択'
@@ -312,14 +523,14 @@ window.escoAI.on('agent:token', ({ delta }) => {
     currentAiRaw = ''
   }
   currentAiRaw += delta
-  currentAiEl.innerHTML = md(currentAiRaw)
+  currentAiEl.innerHTML = messageMd(currentAiRaw)
   if (atBottom) scrollToBottom()
 })
 window.escoAI.on('agent:text', ({ text }) => {
   clearPending()
   currentAiEl = addMsg('ai', '')
   currentAiRaw = text
-  currentAiEl.innerHTML = md(text)
+  currentAiEl.innerHTML = messageMd(text)
 })
 window.escoAI.on('agent:tool', ({ tool }) => {
   $('toolStatus').textContent = tool
@@ -457,6 +668,7 @@ $('settingsBtn').addEventListener('click', async () => {
   }
   $('setKey').value = settingsCache.apiKey || ''
   $('setName').value = settingsCache.userName || ''
+  $('businessFolderPath').textContent = settingsCache.businessFolder || '未設定'
   $('mChat').value = settingsCache.models.chat
   $('mDocs').value = settingsCache.models.docs
   $('mFiles').value = settingsCache.models.files

@@ -13,7 +13,10 @@ const EVENTS = [
   'agent:choice',
   'update:status',
   'usage:updated',
-  'remote:changed'
+  'remote:changed',
+  'sessions:changed',
+  'history:error',
+  'chat:idle', 'session:selected', 'business:status'
 ]
 
 contextBridge.exposeInMainWorld('escoAI', {
@@ -27,7 +30,17 @@ contextBridge.exposeInMainWorld('escoAI', {
   remoteStatus: () => ipcRenderer.invoke('remote:status'),
   remoteQr: () => ipcRenderer.invoke('remote:qr'),
   remoteRevoke: (deviceId) => ipcRenderer.invoke('remote:revoke', deviceId),
-  newChat: () => ipcRenderer.send('chat:new'),
+  newChat: (input) => ipcRenderer.invoke('chat:new', input),
+  updateSession: (input) => ipcRenderer.invoke('sessions:update', input),
+  purgeSession: (id) => ipcRenderer.invoke('sessions:purge', id),
+  saveProject: (input) => ipcRenderer.invoke('projects:save', input),
+  projectFolder: () => ipcRenderer.invoke('projects:folder'),
+  businessStatus: () => ipcRenderer.invoke('business:status'),
+  businessSync: () => ipcRenderer.invoke('business:sync'),
+  businessFolder: () => ipcRenderer.invoke('business:folder'),
+  preview: (file) => ipcRenderer.invoke('fs:preview', file),
+  listSessions: () => ipcRenderer.invoke('sessions:list'),
+  openSession: (id) => ipcRenderer.invoke('sessions:open', id),
   newWindow: () => ipcRenderer.send('window:new'),
   installUpdate: () => ipcRenderer.send('update:install'),
   pathForFile: (file) => webUtils.getPathForFile(file),

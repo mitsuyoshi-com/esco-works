@@ -334,12 +334,13 @@ class AgentRunner {
    * 1ターン実行。text: ユーザー入力 / mode: chat|docs|files / workFolder: 作業フォルダ
    * autoApprove: ファイル操作の自動許可（フォルダ整理モードの一括処理向け）
    */
-  async startTurn({ text, mode, workFolder, cwd, autoApprove, permMode }) {
+  async startTurn({ text, mode, workFolder, cwd, autoApprove, permMode, history = [], systemInstructions = '', interview = false }) {
     const settings = this.getSettings()
     const modeDef = MODES[mode] || MODES.chat
     const model = (settings.models && settings.models[mode]) || 'claude-sonnet-5'
     const effectiveCwd = workFolder || cwd // 未選択時はスクラッチ領域で動く
     this._permMode = permMode || 'normal' // normal | plan | bypass
+    if (interview) this._permMode = 'readonly'
 
     // 作業フォルダが変わったらセッションを作り直す（cwd単位で保存されるため）
     if (this.sessionCwd !== effectiveCwd) {
@@ -354,23 +355,24 @@ class AgentRunner {
 - まず必要に応じて読み取り・調査だけを行い、その上で「何を・どの順で行うか」の計画を箇条書きで提示してください。
 - 計画を提示したらそこで止まり、ユーザーの承認を待ってください。勝手に制作を始めないこと。`
     }
-    if (this._permMode === 'readonly') {
+    if (this._permMode === 'readonly' && !interview) {
       append += `
 - 現在はサーバー上で応答しています（ユーザーのパソコンは起動していません）。ファイルの作成・編集・パソコンの操作はできません。
 - そうした依頼を受けたら「パソコンのESCO Worksが起動しているときにできます」と一言案内し、いまできる範囲（相談・調べもの・文章の下書き）で最大限手伝ってください。下書きは本文をチャットにそのまま書いて渡します。`
     }
-    if (!workFolder) {
+    if (!workFolder && !interview) {
       append += `
 - 現在、作業フォルダは未選択ですが、それを理由に作業を断らないでください。
 - ユーザーが場所を明示した依頼（例:「デスクトップにフォルダを作って」「C:\\...のファイルを読んで」）は、そのまま実行してください。必要な操作はユーザーが画面の承認バーで許可します。デスクトップは %USERPROFILE%\\Desktop です。
 - 保存先の指定がなく曖昧なときだけ、保存先を質問してください（📁ボタンで作業フォルダを選ぶ方法も一言添えてよい）。`
     }
 
+    append += '\n' + systemInstructions
     const abort = new AbortController()
     this.abort = abort
 
     // ブラウザ操作は「設定ON かつ npx(Node.js)がある」場合のみ有効
-    const browserEnabled = !!settings.enableBrowser && hasNpx()
+    const browserEnabled = !interview && !!settings.enableBrowser && hasNpx()
     this._expectBrowser = browserEnabled
 
     const env = { ...process.env }
@@ -417,7 +419,7 @@ class AgentRunner {
       resume: resumeId,
       includePartialMessages: true,
       permissionMode: sdkPermMode,
-      canUseTool: this.buildCanUseTool(workFolder, !!autoApprove),
+      canUseTool: interview ? async () => ({ behavior: 'deny', message: '業務の聞き取りではツールを使わず回答してください。' }) : this.buildCanUseTool(workFolder, !!autoApprove),
       settingSources: [],
       systemPrompt: { type: 'preset', preset: 'claude_code', append },
       model,
@@ -433,7 +435,15 @@ class AgentRunner {
       let finalText = ''
       // Agent SDKはESM専用のため動的importで読み込む
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
-      const q = query({ prompt: text, options: buildOptions(resumeId) })
+      // SDK history may have been removed, or the working folder may have changed.
+      // Preserve recent conversational context when a native resume is unavailable.
+      const context = !resumeId && history.length
+        ? history.slice(-40).map(m => `${m.role === 'user' ? 'ユーザー' : 'アシスタント'}: ${m.text}`).join('\n\n').slice(-60000)
+        : ''
+      const prompt = context
+        ? `以下は以前の会話の記録です。文脈の参考として使ってください。\n<previous_conversation>\n${context}\n</previous_conversation>\n\n今回のユーザー入力:\n${text}`
+        : text
+      const q = query({ prompt, options: buildOptions(resumeId) })
       for await (const msg of q) {
         if (abort.signal.aborted) break
         this.handleMessage(msg, {

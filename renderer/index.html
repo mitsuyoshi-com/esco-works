@@ -17,7 +17,7 @@
     <div class="spacer"></div>
     <button id="folderBtn" class="ghost" title="AIが読み書きするフォルダ">📁 <span id="folderName">…</span></button>
     <button id="newWinBtn" class="ghost" title="新しいウィンドウ（別作業を並行）">🪟</button>
-    <button id="newChatBtn" class="ghost" title="会話をリセット">🆕</button>
+    <button id="newChatBtn" class="ghost" title="履歴を残して新しい会話を始める">＋ 新しい会話</button>
     <button id="settingsBtn" class="ghost" title="設定">⚙</button>
   </header>
 
@@ -33,15 +33,16 @@
 
   <div id="content">
     <aside id="side">
-      <div class="side-head">
-        <span id="sideTitle">ファイル</span>
-        <button id="refreshBtn" class="mini" title="一覧を更新">↻</button>
-      </div>
-      <div id="tree"></div>
-      <div class="side-hint">クリックで選択 → チャットへドラッグ<br>ダブルクリックで開く</div>
+      <div class="side-head"><span>セッション履歴</span><span class="history-local">このPCに保存</span></div>
+      <label class="history-search"><input id="sessionSearch" type="search" placeholder="会話のタイトルを検索" aria-label="会話のタイトルを検索" /></label>
+      <div class="workspace-actions"><button id="newProjectBtn">＋ プロジェクト</button><button id="businessBtn">私の業務を教える</button></div>
+      <select id="historyFilter" aria-label="履歴の表示"><option value="active">すべての作業</option><option value="archive">アーカイブ</option><option value="trash">ゴミ箱</option></select>
+      <div id="sessionList" aria-label="セッション履歴"></div>
+      <div id="historyNotice" role="status" hidden></div>
     </aside>
 
     <div id="chatCol">
+      <div id="sessionHeading"><strong id="sessionName">新しい会話</strong><button id="shareWorkBtn">業務共有に追加</button></div><div id="businessBar" hidden><span id="businessState"></span><button id="businessRetry">共有先へ再保存</button></div>
       <main id="messages"></main>
 
       <footer>
@@ -63,16 +64,32 @@
     </div>
   </footer>
     </div><!-- /chatCol -->
+    <aside id="filesPanel">      <div class="side-head">
+        <span id="sideTitle">ファイル</span>
+        <button id="refreshBtn" class="mini" title="一覧を更新">↻</button>
+      </div>
+      <div id="tree"></div>
+      <div class="side-hint">クリックで選択 → チャットへドラッグ<br>ダブルクリックで開く</div>
+<div class="side-head"><span id="previewName">ファイルプレビュー</span></div><pre id="filePreview">ファイルをクリックすると内容を表示します。</pre></aside>
   </div><!-- /content -->
 
+  <dialog id="editDlg">
+    <h3 id="editHeading">編集</h3>
+    <label>名前<input id="editName" maxlength="120" /></label>
+    <div id="projectFields"><button id="pickProjectFolder" type="button">標準フォルダを選択</button><p id="projectFolderLabel"></p><label>共通指示<textarea id="projectInstructions" rows="5" placeholder="このプロジェクトで共通して守るルール"></textarea></label></div>
+    <label id="moveField">移動先<select id="moveProject"></select></label>
+    <p id="editError" role="status"></p><div class="dlgBtns"><button id="editSave" class="primary">保存</button><button id="editCancel">閉じる</button></div>
+  </dialog>
+  <dialog id="sessionMenuDlg"><h3 id="menuTitle">セッション管理</h3><div id="sessionMenuActions"></div><button id="menuClose">閉じる</button></dialog>
   <dialog id="settingsDlg">
     <h3>設定</h3>
     <label>APIキー（Anthropic）
       <input type="password" id="setKey" placeholder="sk-ant-..." />
     </label>
-    <label>お名前（任意）
+    <label>お名前（業務共有では必須）
       <input type="text" id="setName" />
     </label>
+    <fieldset><legend>業務MDの共有保存</legend><p>お名前を入力し、Google Drive内の「ESCO_業務共有」を選んで保存してください。その後、左上の「私の業務を教える」に、担当業務・手順・困りごとを自由に入力してください。入力内容と整理した業務MDが共有先に保存され、社内で業務改善に利用されます。</p><button id="businessFolderBtn" type="button">共有フォルダを選択</button><p id="businessFolderPath"></p><p>スタッフごとに専用の保存先を自動作成します。PCを替える際は業務データの引き継ぎが必要です。</p></fieldset>
     <fieldset>
       <legend>モデル（作業モードごと）</legend>
       <label>チャット

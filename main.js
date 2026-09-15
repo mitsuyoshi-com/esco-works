@@ -10,6 +10,17 @@ const { RemoteServer } = require('./remote')
 const { Tunnel } = require('./tunnel')
 const { RelayClient } = require('./relayClient')
 const { randomUUID } = require('crypto')
+const workspaceCheck = process.argv.includes('--workspace-check')
+const releaseCheck = process.argv.includes('--release-check')
+if (workspaceCheck || releaseCheck) app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'esco-packaged-check-')))
+const { SessionStore, SessionRecorder } = require('./sessions')
+const { ProjectStore } = require('./projects')
+const { BusinessStore } = require('./business')
+const { FolderQueue } = require('./folderQueue')
+const folderQueue = new FolderQueue()
+let projectStore, businessStore, businessTimer
+const contexts = new Map()
+let sessionStore
 
 let settings = null
 // webContents.id -> { win, runner, workFolder }
@@ -198,55 +209,60 @@ async function setRemoteMode(mode) {
   return remoteStatusPayload()
 }
 
+function createContext(session = sessionStore.create()) {
+  const ctx = { win: null, workFolder: session.workFolder, busy: false, watcher: null, watchTimer: null,
+    asks: new Map(), choices: new Map(), unread: false, status: '待機中' }
+  ctx.emit = (ev, payload) => {
+    for (const view of windows.values()) if (view.active === ctx) view.emit(ev, payload)
+  }
+  ctx.history = new SessionRecorder(sessionStore, () => emitAll('sessions:changed', {}),
+    () => ctx.emit('history:error', { message: '履歴を保存できませんでした。空き容量・アクセス権を確認してください。' }))
+  ctx.history.session = session
+  ctx.runner = new AgentRunner({ getSettings: () => settings, emit: wrapUsageAccounting((ev, payload) => {
+    ctx.history.event(ev, payload, ctx.runner)
+    if (ev === 'agent:ask') { ctx.asks.set(payload.requestId, payload); ctx.status = '確認待ち' }
+    if (ev === 'agent:choice') { ctx.choices.set(payload.requestId, payload); ctx.status = '確認待ち' }
+    if (ev === 'agent:error') ctx.status = 'エラー'
+    if (ev === 'agent:token' || ev === 'agent:tool') ctx.status = '作業中'
+    ctx.emit(ev, payload)
+    if (ev === 'agent:ask' || ev === 'agent:choice') emitAll('sessions:changed', {})
+  }) })
+  ctx.runner.sessionId = session.sessionId || undefined
+  ctx.runner.sessionCwd = session.sessionCwd || undefined
+  contexts.set(session.id, ctx)
+  return ctx
+}
+function snapshot(ctx) {
+  return { ...ctx.history.session, workFolder: ctx.workFolder, busy: ctx.busy, status: ctx.status,
+    asks: [...ctx.asks.values()], choices: [...ctx.choices.values()] }
+}
+function selectContext(view, ctx) {
+  view.active = ctx; ctx.win = view.win; ctx.unread = false
+  watchFolder(ctx)
+  emitAll('sessions:changed', {})
+  return snapshot(ctx)
+}
 function createWindow() {
-  const win = new BrowserWindow({
-    width: 920,
-    height: 700,
-    minWidth: 640,
-    minHeight: 480,
-    title: 'ESCO Works',
-    icon: path.join(__dirname, 'build', 'icon.png'),
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-  const id = win.webContents.id
-  const emit = (ev, payload) => {
-    if (ev.startsWith('agent:')) console.log(`[win${id}][${ev}]`, JSON.stringify(payload).slice(0, 200))
+  const win = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 550, show: !workspaceCheck,
+    title: 'ESCO Works', icon: path.join(__dirname, 'build', 'icon.png'), autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false } })
+  const view = { win, active: createContext(), emit: (ev, payload) => {
     if (!win.isDestroyed()) win.webContents.send(ev, payload)
-  }
-  const state = {
-    win,
-    emit,
-    workFolder: null, // 未選択で開始。選択しなくても会話は動く
-    runner: new AgentRunner({ getSettings: () => settings, emit: wrapUsageAccounting(emit) }),
-    watcher: null,
-    watchTimer: null
-  }
-  windows.set(id, state)
-  // 画面側のconsoleエラーをメイン側ログへ透過（診断用）
-  win.webContents.on('console-message', (_e, level, message) => {
-    if (level >= 2) console.log(`[win${id}][renderer] ${message}`)
-  })
-  win.on('closed', () => {
-    state.runner.interrupt()
-    state.watcher?.close()
-    windows.delete(id)
-  })
+  } }
+  view.active.win = win
+  const windowId = win.webContents.id
+  windows.set(windowId, view)
+  win.on('closed', () => { windows.delete(windowId); emitAll('sessions:changed', {}) })
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   return win
 }
-
-function stateOf(event) {
-  return windows.get(event.sender.id)
-}
+function stateOf(event) { return windows.get(event.sender.id)?.active }
 
 // 作業フォルダの設定変更を1か所に集約し、監視の張り直しとUI通知を行う
 function setWorkFolder(state, folder) {
   state.workFolder = folder
+  state.history.session.workFolder = folder
+  state.history.flush()
   watchFolder(state)
   state.emit('folder:changed', { workFolder: folder })
 }
@@ -295,6 +311,39 @@ function isInsideFolder(child, parent) {
 
 app.whenReady().then(async () => {
   settings = loadSettings()
+  if (releaseCheck) {
+    const timer = setTimeout(() => { console.error('[release-check] TIMEOUT'); app.exit(1) }, 120000)
+    try {
+      if (!process.env.ESCO_CHECK_API_KEY) throw new Error('Test API key missing')
+      const config = { ...settings, apiKey: process.env.ESCO_CHECK_API_KEY, userName: '配布前の架空業務テスト', staffId: 'release-check', businessFolder: process.env.ESCO_CHECK_FOLDER || path.join(app.getPath('userData'), 'share') }
+      fs.mkdirSync(config.businessFolder, { recursive: true })
+      const store = new BusinessStore(path.join(app.getPath('userData'), 'business'), () => config)
+      let output = '', failure = false
+      const runner = new AgentRunner({ getSettings: () => config, emit: (event, value) => {
+        if (event === 'agent:token') output += value.delta
+        if (event === 'agent:text') output += value.text
+        if (event === 'agent:error') failure = true
+      } })
+      for (const text of ['これは架空の動作確認です。毎月請求書をExcelで作成し、1時間かかります。', '同じ請求書業務の補足です。毎月15日に作成します。']) {
+        output = ''; const id = store.capture(text, 'release-check')
+        await runner.startTurn({ text, mode: 'chat', cwd: app.getPath('userData'), interview: true, systemInstructions: store.instructions() })
+        if (failure || !output || !store.integrate(output, id)) throw new Error('AI response or structured output failed')
+        await store.sync()
+        if (!store.state.lastSync) throw new Error('Shared Markdown write failed')
+      }
+      if (!runner.sessionId || !Object.keys(store.state.jobs).length) throw new Error('Session resume or jobs missing')
+      console.log('[release-check] PASS: real AI, session continuation, structured jobs, shared Markdown overwrite')
+      clearTimeout(timer); app.exit(0)
+    } catch (e) { console.error('[release-check] FAIL:', e.message); clearTimeout(timer); app.exit(1) }
+    return
+  }
+  if (workspaceCheck) { settings.apiKey = 'test-ui-no-api-call'; settings.remote = { mode: 'off' } }
+  sessionStore = new SessionStore(path.join(app.getPath('userData'), 'sessions'))
+  projectStore = new ProjectStore(path.join(app.getPath('userData'), 'projects'))
+  if (!settings.staffId) { settings.staffId = randomUUID(); saveSettings(settings) }
+  businessStore = new BusinessStore(path.join(app.getPath('userData'), 'business'), () => settings,
+    payload => emitAll('business:status', payload))
+  businessTimer = setInterval(() => businessStore.state.entries.length && businessStore.sync(), 60000)
 
   // 起動診断モード: electron . --selftest でGUIなしにSDK呼び出しを検証
   if (process.argv.includes('--selftest')) {
@@ -326,7 +375,9 @@ app.whenReady().then(async () => {
       hasApiKey: !!settings.apiKey,
       workFolder: s.workFolder,
       monthUsd: monthUsage(),
-      version: app.getVersion()
+      version: app.getVersion(),
+      session: snapshot(s),
+      busy: s.busy
     }
   })
 
@@ -343,12 +394,14 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('folder:pick', async (e) => {
     const s = stateOf(e)
+    if (s.busy) throw new Error('作業が終わってからフォルダを変更してください')
     const r = await dialog.showOpenDialog(s.win, {
       title: '作業フォルダを選択',
       defaultPath: s.workFolder || app.getPath('documents'),
       properties: ['openDirectory', 'createDirectory']
     })
     if (!r.canceled && r.filePaths[0]) {
+      if (s.busy) throw new Error('作業が終わってからフォルダを変更してください')
       setWorkFolder(s, r.filePaths[0])
     }
     return s.workFolder
@@ -381,38 +434,149 @@ app.whenReady().then(async () => {
     return true
   })
 
-  ipcMain.handle('chat:send', async (e, { text, mode, autoApprove, permMode }) => {
+  ipcMain.handle('chat:send', async (e, { text, mode, autoApprove, permMode, sessionId }) => {
     const s = stateOf(e)
-    // 選択済みフォルダが消えていたら「未選択」に戻す（未選択でも会話は動く）
-    if (s.workFolder && !fs.existsSync(s.workFolder)) {
-      setWorkFolder(s, null)
+    if (sessionId && sessionId !== s.history.session.id) throw new Error('セッションが切り替わりました。もう一度送信してください')
+    if (s.busy) throw new Error('このセッションは実行中です')
+    if (s.history.session.deleted || s.history.session.archived) throw new Error('復元してから送信してください')
+    if (s.history.session.kind === 'business' && [...contexts.values()].some(c => c.busy && c.history.session.kind === 'business')) throw new Error('業務整理が完了するまでお待ちください')
+    if (typeof text !== 'string' || !text.trim()) throw new Error('メッセージを入力してください')
+    mode = ['chat', 'docs', 'files'].includes(mode) ? mode : 'chat'
+    s.busy = true
+    s.status = '作業中'
+    let entryId
+    let releaseFolder = () => {}
+    const messageStart = s.history.session.messages.length
+    const history = s.history.session.messages.filter(m => m.role === 'user' || m.role === 'ai')
+      .map(m => ({ role: m.role, text: m.text }))
+    try {
+      if (s.history.session.kind === 'business') {
+        entryId = businessStore.capture(text, s.history.session.id)
+        businessStore.sync()
+      }
+      s.history.begin(text, mode, s.workFolder)
+      const lock = folderQueue.request(s.workFolder)
+      s.cancelQueue = lock.cancel
+      s.status = '順番待ち'
+      emitAll('sessions:changed', {})
+      releaseFolder = await lock.wait
+      s.cancelQueue = null
+      s.status = '作業中'
+      // 選択済みフォルダが消えていたら「未選択」に戻す（未選択でも会話は動く）
+      if (s.workFolder && !fs.existsSync(s.workFolder)) {
+        setWorkFolder(s, null)
+      }
+      console.log(`[win${e.sender.id}][chat:send] mode=${mode} perm=${permMode} len=${text.length}`)
+      const project = projectStore.list().find(p => p.id === s.history.session.projectId)
+      emitAll('sessions:changed', {})
+      await s.runner.startTurn({
+        text,
+        history,
+        systemInstructions: entryId ? businessStore.instructions() : project?.instructions || '',
+        interview: !!entryId,
+        mode,
+        workFolder: s.workFolder,
+        cwd: scratchDir(),
+        autoApprove,
+        permMode
+      })
+      if (entryId) {
+        const output = s.history.session.messages.slice(messageStart).filter(m => m.role === 'ai').map(m => m.text).join('\n')
+        businessStore.integrate(output, entryId)
+        await businessStore.sync()
+      }
+      return true
+    } catch (error) {
+      s.status = 'エラー'
+      s.history.event('agent:error', { message: error.message }, s.runner)
+      throw error
+    } finally {
+      releaseFolder()
+      s.cancelQueue = null
+      s.history.finish(s.runner)
+      s.busy = false
+      s.asks.clear(); s.choices.clear()
+      if (s.status !== 'エラー') s.status = '完了'
+      s.unread = ![...windows.values()].some(v => v.active === s)
+      s.emit('chat:idle', {})
+      emitAll('sessions:changed', {})
     }
-    console.log(`[win${e.sender.id}][chat:send] mode=${mode} perm=${permMode} len=${text.length}`)
-    await s.runner.startTurn({
-      text,
-      mode,
-      workFolder: s.workFolder,
-      cwd: scratchDir(),
-      autoApprove,
-      permMode
-    })
-    return true
   })
 
-  ipcMain.on('chat:interrupt', (e) => stateOf(e)?.runner.interrupt())
-  ipcMain.on('chat:new', (e) => {
-    const s = stateOf(e)
-    if (!s) return
-    // 実行中ターンを止めてから会話をリセット（旧ターンの流入・旧セッション復活を防ぐ）
-    s.runner.interrupt()
-    s.runner.newConversation()
+  ipcMain.on('chat:interrupt', (e) => { const s = stateOf(e); if (s?.cancelQueue) s.cancelQueue(); else s?.runner.interrupt() })
+  ipcMain.handle('chat:new', (e, input = {}) => {
+    const view = windows.get(e.sender.id)
+    const session = sessionStore.create()
+    if (input.projectId) {
+      const project = projectStore.get(input.projectId)
+      session.projectId = project.id; session.workFolder = project.folder
+    }
+    if (input.kind === 'business') { session.kind = 'business'; session.title = '私の業務を教える'; session.customTitle = true; session.pinned = true }
+    sessionStore.save(session)
+    return selectContext(view, createContext(session))
   })
-  ipcMain.on('perm:respond', (e, { requestId, approved, remember }) =>
-    stateOf(e)?.runner.respondPermission(requestId, approved, remember)
-  )
-  ipcMain.on('choice:respond', (e, { requestId, answer }) =>
-    stateOf(e)?.runner.respondChoice(requestId, answer)
-  )
+  ipcMain.handle('sessions:list', (e) => ({ currentId: stateOf(e)?.history.session.id || null, projects: projectStore.list(),
+    items: sessionStore.list().map(item => ({ ...item,
+      busy: !!contexts.get(item.id)?.busy, status: contexts.get(item.id)?.status || '待機中', unread: !!contexts.get(item.id)?.unread,
+      openElsewhere: [...windows.values()].some(v => v.win.webContents.id !== e.sender.id && v.active.history.session.id === item.id)
+    })) }))
+  ipcMain.handle('sessions:open', (e, id) => {
+    const view = windows.get(e.sender.id)
+    const owner = [...windows.values()].find(v => v !== view && v.active.history.session.id === id)
+    if (owner) { owner.win.show(); owner.win.focus(); throw new Error('別ウィンドウで開いています。そのウィンドウを表示しました。') }
+    const ctx = contexts.get(id) || createContext(sessionStore.read(id))
+    return selectContext(view, ctx)
+  })
+  ipcMain.handle('sessions:update', (_e, { id, action, value }) => {
+    const ctx = contexts.get(id)
+    if (ctx?.busy && !['rename','pin'].includes(action)) throw new Error('実行中の作業を停止してから操作してください')
+    const session = ctx?.history.session || sessionStore.read(id)
+    if (action === 'rename') { if (!String(value || '').trim()) throw new Error('名前を入力してください'); session.title = String(value).trim().slice(0,120); session.customTitle = true }
+    else if (action === 'pin') session.pinned = !session.pinned
+    else if (action === 'archive') session.archived = true
+    else if (action === 'trash') session.deleted = true
+    else if (action === 'restore') { session.archived = false; session.deleted = false }
+    else if (action === 'move') { if (value) projectStore.get(value); session.projectId = value || null }
+    else throw new Error('操作が不正です')
+    sessionStore.save(session); emitAll('sessions:changed', {}); return ctx ? snapshot(ctx) : session
+  })
+  ipcMain.handle('sessions:purge', async (e, id) => {
+    const session = sessionStore.read(id)
+    if (!session.deleted || contexts.get(id)?.busy) throw new Error('ゴミ箱内の停止したセッションだけ削除できます')
+    const { response } = await dialog.showMessageBox(windows.get(e.sender.id).win, { type: 'warning', buttons: ['キャンセル','完全に削除'], defaultId: 0, cancelId: 0,
+      message: '「' + session.title + '」の会話履歴を完全に削除しますか？', detail: '元に戻せません。作成した業務ファイル・共有MDは削除しません。' })
+    if (response !== 1) return false
+    const ctx = contexts.get(id); if (ctx) { clearTimeout(ctx.history.timer); ctx.watcher?.close() }
+    contexts.delete(id); fs.unlinkSync(sessionStore.file(id))
+    for (const view of windows.values()) if (view.active.history.session.id === id) { selectContext(view, createContext()); view.emit('session:selected', snapshot(view.active)) }
+    emitAll('sessions:changed', {}); return true
+  })
+  ipcMain.handle('projects:save', (_e, input) => { const p = projectStore.save(input); emitAll('sessions:changed', {}); return p })
+  ipcMain.handle('projects:folder', async e => { const r = await dialog.showOpenDialog(windows.get(e.sender.id).win, { properties: ['openDirectory'] }); return r.canceled ? null : r.filePaths[0] })
+  ipcMain.handle('business:status', () => businessStore.status())
+  ipcMain.handle('business:sync', () => businessStore.sync())
+  ipcMain.handle('business:folder', async e => {
+    const r = await dialog.showOpenDialog(windows.get(e.sender.id).win, { title: 'Google Drive内のESCO_業務共有を選択', properties: ['openDirectory'] })
+    if (!r.canceled) { settings.businessFolder = r.filePaths[0]; saveSettings(settings); emitAll('settings:changed', { ...settings, apiKey: settings.apiKey ? '****' + settings.apiKey.slice(-4) : '' }); await businessStore.sync() }
+    return settings.businessFolder || ''
+  })
+  ipcMain.handle('fs:preview', async (e, file) => {
+    const ctx = stateOf(e)
+    if (!ctx.workFolder || !isInsideFolder(file, ctx.workFolder)) throw new Error('作業フォルダ内のファイルを選択してください')
+    const real = await fs.promises.realpath(file)
+    if (!isInsideFolder(real, await fs.promises.realpath(ctx.workFolder))) throw new Error('フォルダ外のリンクは表示できません')
+    const stat = await fs.promises.stat(real)
+    if (stat.size > 512000 || !/\.(md|txt|csv|json|js|css|html|log|ya?ml)$/i.test(real)) return { text: 'プレビュー対象外です。ダブルクリックすると既定のアプリで開きます。' }
+    return { text: await fs.promises.readFile(real, 'utf8') }
+  })
+  ipcMain.on('perm:respond', (e, { requestId, approved, remember }) => {
+    const s = stateOf(e); if (!s?.asks.has(requestId)) return
+    s.asks.delete(requestId); s.runner.respondPermission(requestId, approved, remember); s.status = '作業中'; emitAll('sessions:changed', {})
+  })
+  ipcMain.on('choice:respond', (e, { requestId, answer }) => {
+    const s = stateOf(e); if (!s?.choices.has(requestId)) return
+    s.choices.delete(requestId); s.runner.respondChoice(requestId, answer); s.status = '作業中'; emitAll('sessions:changed', {})
+  })
 
   ipcMain.on('window:new', () => createWindow())
   ipcMain.on('update:install', () => updater && updater.quitAndInstall())
@@ -592,6 +756,26 @@ app.whenReady().then(async () => {
   }
 
   const win = createWindow()
+  if (workspaceCheck) {
+    const timeout = setTimeout(() => app.exit(1), 20000)
+    win.webContents.once('did-finish-load', async () => {
+      try {
+        const ok = await win.webContents.executeJavaScript(`(async () => {
+          const init = await window.escoAI.init();
+          const project = await window.escoAI.saveProject({name:'配布版検証',instructions:'検証用'});
+          const chat = await window.escoAI.newChat({projectId:project.id});
+          await window.escoAI.updateSession({id:chat.id,action:'rename',value:'配布版会話'});
+          await window.escoAI.updateSession({id:chat.id,action:'archive'});
+          const restored = await window.escoAI.updateSession({id:chat.id,action:'restore'});
+          const list = await window.escoAI.listSessions();
+          return init.version === '0.2.0' && restored.title === '配布版会話' && list.projects.length === 1 && !!document.getElementById('filesPanel');
+        })()`)
+        console.log(ok ? '[workspace-check] PASS' : '[workspace-check] FAIL')
+        clearTimeout(timeout); app.exit(ok ? 0 : 1)
+      } catch (error) { console.error(error); clearTimeout(timeout); app.exit(1) }
+    })
+    return
+  }
 
   // 自動アップデート（配布ビルドのみ有効）
   updater = setupAutoUpdate(app, emitAll, (m) => console.log(m))
@@ -663,5 +847,7 @@ app.on('window-all-closed', () => {
 
 // 終了時にcloudflaredの子プロセスを確実に殺す
 app.on('will-quit', () => {
+  clearInterval(businessTimer)
+  for (const ctx of contexts.values()) { ctx.runner.interrupt(); ctx.history.finish(ctx.runner); ctx.watcher?.close(); clearTimeout(ctx.watchTimer) }
   stopRemote(false)
 })
