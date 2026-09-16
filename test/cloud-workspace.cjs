@@ -12,6 +12,7 @@ const op=()=>({opId:randomUUID()});
 (async()=>{try{
  for(let i=0;i<40;i++){try{await fetch(url);break}catch{await delay(100)}}
  const a=await api('login',{email:'one@example.test',password:'test-password-one',desktop:true}),b=await api('login',{email:'two@example.test',password:'test-password-two',desktop:true});
+ assert.equal((await api('bootstrap',{_accessToken:a.token})).user.id,a.user.id);
  await api('bootstrap',{},'',401);await api('bootstrap',{},a.token,403,{Origin:'https://evil.example'});
  await api('invite.issue',{...op(),email:'new@example.test'},b.token,403);
  await api('drive.configure',{url:'https://evil.example',key:'x'},b.token,403);

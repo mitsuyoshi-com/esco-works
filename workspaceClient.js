@@ -10,7 +10,7 @@ class WorkspaceClient {
   save() { const f = path.join(this.dir, 'account.bin'); fs.writeFileSync(f + '.tmp', this.encrypt(JSON.stringify(this.config))); fs.renameSync(f + '.tmp', f) }
   async api(action, body = {}) {
     if (!this.config.url) throw Error('同期サーバーのURLを設定してください')
-    const r = await fetch(this.config.url + '/api.php', { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(action === 'work.run' ? 125000 : 25000), headers: { 'Content-Type': 'application/json', ...(this.config.token ? { Authorization: 'Bearer ' + this.config.token } : {}) }, body: JSON.stringify({ action, ...body }) })
+    const r = await fetch(this.config.url + '/api.php', { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(action === 'work.run' ? 125000 : 25000), headers: { 'Content-Type': 'application/json', ...(this.config.token ? { Authorization: 'Bearer ' + this.config.token } : {}) }, body: JSON.stringify({ action, ...body, ...(this.config.token ? { _accessToken: this.config.token } : {}) }) })
     let j; try { j = await r.json() } catch { throw Error('同期サーバーの応答を確認できませんでした') }
     if (!r.ok) { const e = Error(j.error || '同期に失敗しました'); e.status = r.status; throw e } return j
   }

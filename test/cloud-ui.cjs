@@ -17,6 +17,7 @@ app.whenReady().then(async()=>{try{
  await mj("$('email').value='one@example.test';$('password').value='test-password-one';$('loginForm').requestSubmit()");await until(()=>mj('!!user'));await mj(`select(${JSON.stringify(sid)})`);await until(()=>mj("!!document.querySelector('#asks button')"));await mj("document.querySelector('#asks button').click()");
  await until(()=>fs.existsSync(path.join(data,'pc-result.txt')));await until(()=>mj("$('messages').textContent.includes('承認して実行しました')"));
  assert.ok(await mj('document.documentElement.scrollWidth<=innerWidth'));
+ await delay(200);const shot=await mobile.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});if(!shot.isEmpty())fs.writeFileSync(path.join(data,'mobile.png'),shot.toPNG());
  assert.ok(await mj('innerWidth<=390'));assert.equal(await mj("getComputedStyle($('sidebar')).position"),'fixed');
  await mj("$('manage').click()");await mj("document.querySelector('#editBody input').value='スマホで名前変更';[...document.querySelectorAll('#editBody button')].find(b=>b.textContent==='名前を保存').click()");await until(()=>js("state.sessions.some(s=>s.title==='スマホで名前変更')"));
  setup.client.stop();

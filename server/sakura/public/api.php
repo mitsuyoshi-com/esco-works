@@ -9,7 +9,7 @@ try{
  $origin=$_SERVER['HTTP_ORIGIN']??'';if($origin&&$origin!==($cfg['origin']??'')){http_response_code(403);echo json_encode(['error'=>'許可されていない接続元です']);exit;}
  if((int)($_SERVER['CONTENT_LENGTH']??0)>2500000){http_response_code(413);exit;}
  $raw=file_get_contents('php://input',false,null,0,2500001);demand(strlen($raw)<=2500000,'入力が長すぎます',413);$b=json_decode($raw,true,512,JSON_THROW_ON_ERROR);demand(is_array($b),'リクエストが不正です');$action=$b['action']??'';
- $auth=$_SERVER['HTTP_AUTHORIZATION']??$_SERVER['REDIRECT_HTTP_AUTHORIZATION']??'';$token=preg_match('/^Bearer ([a-f0-9]{64})$/',$auth,$m)?$m[1]:($_COOKIE['esco_workspace']??'');
+ $auth=$_SERVER['HTTP_AUTHORIZATION']??$_SERVER['REDIRECT_HTTP_AUTHORIZATION']??'';$token=preg_match('/^Bearer ([a-f0-9]{64})$/',$auth,$m)?$m[1]:($b['_accessToken']??$_COOKIE['esco_workspace']??'');unset($b['_accessToken']);demand(is_string($token),'ログインしてください',401);
  $w=new Workspace($cfg);
  if($action==='drive.configure'){
   $u=$w->tx(function(&$s)use($w,$token){return $w->auth($s,$token);});demand(!empty($u['admin']),'管理者のみ利用できます',403);

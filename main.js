@@ -773,10 +773,14 @@ app.whenReady().then(async () => {
           await window.escoAI.updateSession({id:chat.id,action:'archive'});
           const restored = await window.escoAI.updateSession({id:chat.id,action:'restore'});
           const list = await window.escoAI.listSessions();
-          return init.version === '0.2.0' && restored.title === '配布版会話' && list.projects.length === 1 && !!document.getElementById('filesPanel');
+          return init.version === ${JSON.stringify(app.getVersion())} && restored.title === '配布版会話' && list.projects.length === 1 && !!document.getElementById('filesPanel');
         })()`)
-        console.log(ok ? '[workspace-check] PASS' : '[workspace-check] FAIL')
-        clearTimeout(timeout); app.exit(ok ? 0 : 1)
+        const cloudWin = workspace.open()
+        const cloudOK = await new Promise(resolve => cloudWin.webContents.once('did-finish-load', async () => {
+          try { resolve(await cloudWin.webContents.executeJavaScript(`(async()=>{const status=await window.escoWorkspace.request('status');return !status.connected&&!!document.getElementById('sendForm')})()`)) } catch { resolve(false) }
+        }))
+        console.log(ok && cloudOK ? '[workspace-check] PASS' : '[workspace-check] FAIL')
+        clearTimeout(timeout); app.exit(ok && cloudOK ? 0 : 1)
       } catch (error) { console.error(error); clearTimeout(timeout); app.exit(1) }
     })
     return
