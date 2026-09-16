@@ -17,7 +17,8 @@ try{
   $f=$cfg['dataDir'].'/drive-gateway.json';file_put_contents($f.'.tmp',json_encode(['gatewayUrl'=>$url,'gatewayKey'=>$key]));chmod($f.'.tmp',0600);rename($f.'.tmp',$f);echo json_encode(['ok'=>true]);exit;
  }
  if($action==='work.run'){set_time_limit(120);ignore_user_abort(true);$u=$w->tx(function(&$s)use($w,$token){return $w->auth($s,$token);});cloudRun($w,null,$u['id']);require_once $private.'/drive.php';$drive=new DrivePublisher($cfg);sharedRun($w,[$drive,'publish'],$u['id'],1);$out=['ok'=>true];}else $out=$w->call($action,$b,$token,$_SERVER['REMOTE_ADDR']??'local');
- if(isset($out['token'])){setcookie('esco_workspace',$out['token'],['expires'=>time()+30*86400,'path'=>$cfg['cookiePath']??'/esco-works/','secure'=>($cfg['secure']??true),'httponly'=>true,'samesite'=>'Strict']);if(empty($b['desktop']))unset($out['token']);}
+ if(isset($out['token'])){setcookie('esco_workspace',$out['token'],['expires'=>time()+400*86400,'path'=>$cfg['cookiePath']??'/esco-works/','secure'=>($cfg['secure']??true),'httponly'=>true,'samesite'=>'Strict']);if(empty($b['desktop']))unset($out['token']);}
+ if($action==='bootstrap'&&$token)setcookie('esco_workspace',$token,['expires'=>time()+400*86400,'path'=>$cfg['cookiePath']??'/esco-works/','secure'=>($cfg['secure']??true),'httponly'=>true,'samesite'=>'Strict']);
  if($action==='logout')setcookie('esco_workspace','',['expires'=>time()-3600,'path'=>$cfg['cookiePath']??'/esco-works/','secure'=>($cfg['secure']??true),'httponly'=>true,'samesite'=>'Strict']);
  // Authenticated polling is also a worker trigger; cron covers closed browsers.
  if($action==='work.run'){/* reserved */}

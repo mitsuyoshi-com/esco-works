@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/devices.php';
 // Private application code. Install OUTSIDE www; only public/api.php is web-accessible.
 final class ApiError extends RuntimeException { public $status; function __construct($message,$status=400){parent::__construct($message);$this->status=$status;} }
 function uid(){return bin2hex(random_bytes(16));}
@@ -16,20 +17,22 @@ final class Workspace {
  function addUser($email,$name,$password){demand(filter_var($email,FILTER_VALIDATE_EMAIL)&&strlen($password)>=12,'メールと12文字以上のパスワードが必要です');return $this->tx(function(&$s)use($email,$name,$password){foreach($s['users'] as $u)demand($u['email']!==strtolower($email),'登録済みです');$u=['id'=>uid(),'email'=>strtolower($email),'name'=>shortText($name,180),'password'=>password_hash($password,PASSWORD_DEFAULT),'disabled'=>false];$s['users'][$u['id']]=$u;return $u['id'];});}
  function user($u){return array_intersect_key($u,array_flip(['id','name','email','admin']));}
  function token(&$s,$userId){$token=bin2hex(random_bytes(32));$s['tokens'][hash('sha256',$token)]=['userId'=>$userId,'expires'=>time()+30*86400];return $token;}
- function auth($s,$token){$t=$s['tokens'][hash('sha256',$token)]??null;$u=$s['users'][$t['userId']??'']??null;demand($t&&$t['expires']>time()&&$u&&!$u['disabled'],'ログインしてください',401);return $u;}
+ function auth(&$s,$token){$t=$s['tokens'][hash('sha256',$token)]??null;$u=$s['users'][$t['userId']??'']??null;demand($t&&$t['expires']>time()&&$u&&!$u['disabled'],'ログインしてください',401);if(isset($t['kind'])){$s['tokens'][hash('sha256',$token)]['expires']=time()+400*86400;$s['tokens'][hash('sha256',$token)]['lastSeen']=stamp();}return $u;}
  function own($s,$table,$id,$userId){$o=$s[$table][$id]??null;demand($o&&$o['userId']===$userId,'対象が見つかりません',404);return $o;}
  function idle($s,$sessionId){foreach($s['tasks'] as $t)if($t['sessionId']===$sessionId&&in_array($t['status'],['queued','running','approval']))throw new ApiError('この会話は処理中です',409);}
  function revision($object,$b){demand(isset($b['revision'])&&$object['revision']===$b['revision'],'他の端末で変更されました。再読み込みしてやり直してください',409);}
  function call($action,$b,$token='',$ip='local'){
   // Login throttling must commit even on bad credentials.
-  if(in_array($action,['login','pair.redeem','invite.redeem'])){
-   $allowed=$this->tx(function(&$s)use($ip){$key=hash('sha256',$ip);$v=$s['limits'][$key]??['at'=>time(),'count'=>0];if(time()-$v['at']>600)$v=['at'=>time(),'count'=>0];$v['count']++;$s['limits'][$key]=$v;foreach($s['limits'] as $k=>$l)if(time()-$l['at']>600)unset($s['limits'][$k]);return $v['count']<=15;});demand($allowed,'時間をおいて再試行してください',429);
+  $newDevice=$action==='device.enroll'&&$this->tx(function(&$s)use($b){return !isset($s['enrollments'][hash('sha256',is_string($b['secret']??null)?$b['secret']:'')]);});
+  if($newDevice||in_array($action,['login','pair.request','invite.redeem'])){
+   $allowed=$this->tx(function(&$s)use($ip,$newDevice){$key=hash('sha256',($newDevice?'enrollment:':'login:').$ip);$v=$s['limits'][$key]??['at'=>time(),'count'=>0];if(time()-$v['at']>600)$v=['at'=>time(),'count'=>0];$v['count']++;$s['limits'][$key]=$v;foreach($s['limits'] as $k=>$l)if(time()-$l['at']>600)unset($s['limits'][$k]);return $v['count']<=($newDevice?100:15);});demand($allowed,'時間をおいて再試行してください',429);
   }
   return $this->tx(function(&$s)use($action,$b,$token){
    foreach($s['tokens'] as $k=>$t)if($t['expires']<=time())unset($s['tokens'][$k]);
    foreach($s['pairs'] as $k=>$t)if($t['expires']<=time())unset($s['pairs'][$k]);
    if($action==='login'){$match=null;foreach($s['users'] as $u)if($u['email']===strtolower(trim($b['email']??'')))$match=$u;$valid=password_verify($b['password']??'',$match['password']??'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.');demand($match&&$valid&&!$match['disabled'],'メールまたはパスワードが違います',401);return ['token'=>$this->token($s,$match['id']),'user'=>$this->user($match)];}
-   if($action==='pair.redeem'){$key=hash('sha256',$b['code']??'');$p=$s['pairs'][$key]??null;demand($p&&$p['expires']>time(),'QRの有効期限が切れました',401);$u=$s['users'][$p['userId']];demand(!$u['disabled'],'ログインできません',401);unset($s['pairs'][$key]);return ['token'=>$this->token($s,$u['id']),'user'=>$this->user($u)];}
+   if($action==='pair.redeem')throw new ApiError('新版のQRで連携してください',410);
+   $deviceResult=deviceCall($this,$s,$action,$b,$token);if($deviceResult!==null)return $deviceResult;
    if($action==='invite.redeem'){
     $key=hash('sha256',$b['code']??'');$i=$s['invites'][$key]??null;demand($i&&$i['expires']>time(),'招待リンクが無効か期限切れです',401);
     $email=strtolower(shortText($b['email']??'',254));$name=shortText($b['name']??'',180);$password=$b['password']??'';
@@ -39,7 +42,6 @@ final class Workspace {
    }
    $u=$this->auth($s,$token);$owner=$u['id'];
    if($action==='logout'){unset($s['tokens'][hash('sha256',$token)]);return ['ok'=>true];}
-   if($action==='pair.issue'){$code=bin2hex(random_bytes(24));$s['pairs'][hash('sha256',$code)]=['userId'=>$owner,'expires'=>time()+120];return ['code'=>$code,'expiresIn'=>120];}
    // Expired PC leases are uncertain, never auto-run a potentially completed file operation twice.
    foreach($s['tasks'] as &$task)if(in_array($task['status'],['running','approval'])&&$task['deadline']<time()){$task['status']='interrupted';$task['error']='接続または処理が中断しました。実行結果を確認してから再依頼してください。';}unset($task);
    if($action==='bootstrap'){
@@ -50,6 +52,7 @@ final class Workspace {
    }
    if($action==='session.get')return $this->own($s,'sessions',$b['id']??'',$owner);
    if($action==='pc.poll'){
+    demand(($s['tokens'][hash('sha256',$token)]['kind']??'legacy')!=='mobile','PCの認証が必要です',403);
     $pcId=$b['pcId']??'';demand((bool)preg_match('/^[a-f0-9-]{32,36}$/',$pcId),'PC情報が不正です');$old=$s['pcs'][$pcId]??null;demand(!$old||$old['userId']===$owner,'接続できません',403);
     $s['pcs'][$pcId]=['id'=>$pcId,'userId'=>$owner,'name'=>shortText($b['name']??'PC',180),'lastSeen'=>time(),'projects'=>array_slice($b['projects']??[],0,200)];$answers=[];$cancel=false;
     foreach($s['tasks'] as &$t){if($t['userId']!==$owner||($t['pcId']??'')!==$pcId)continue;if(($b['active']??'')===$t['id']&&in_array($t['status'],['running','approval'])){$t['deadline']=time()+90;$cancel=!empty($t['cancel']);foreach($t['asks'] as $a)if(isset($a['answer']))$answers[]=$a['answer']+['taskId'=>$t['id']];}}unset($t);

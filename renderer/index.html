@@ -107,7 +107,7 @@
       <input type="checkbox" id="setBrowser" /> ブラウザ操作を有効化（AIがChromeでWeb操作できます。※応答が10秒ほど遅くなります。必要なときだけON推奨）
     </label>
     <fieldset>
-      <legend>スマホ連携</legend>
+      <legend>スマホ連携</legend><p>登録不要。初回にQRを読み、PCで許可するとスマホ単体で使えます。</p><button id="cloudSetupBtn" type="button">スマホとつなぐ・同期画面を開く</button><details><summary>従来の接続設定</summary>
       <div class="remote-modes">
         <label class="chk"><input type="radio" name="remoteMode" value="off" /> 使わない</label>
         <label class="chk"><input type="radio" name="remoteMode" value="tunnel" /> かんたん接続（サーバー不要。アプリを起動し直すたびにQRを読み直します）</label>
@@ -121,7 +121,7 @@
         <button id="remoteQrBtn" type="button" hidden>📱 QRコードを表示</button>
       </div>
       <div id="remoteDevices" class="remote-devices"></div>
-      <div id="remoteHint" class="remote-hint"></div>
+      <div id="remoteHint" class="remote-hint"></div></details>
     </fieldset>
     <div class="dlgBtns">
       <button id="setSave" class="primary">保存</button>

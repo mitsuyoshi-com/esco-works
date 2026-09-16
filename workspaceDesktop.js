@@ -12,10 +12,11 @@ function setupWorkspace({ getSettings, folderQueue, sessions, projects, recordUs
    return { startTurn: async args => { const lock=folderQueue.request(args.workFolder); runner.cancelQueue=lock.cancel; const release=await lock.wait; runner.cancelQueue=null;try { await runner.startTurn(args) }finally{release()} }, interrupt:()=>{runner.cancelQueue?.();runner.interrupt()}, respondPermission:(...a)=>runner.respondPermission(...a),respondChoice:(...a)=>runner.respondChoice(...a) }
   }
  })
- const allowed = new Set(['drive.configure','invite.issue','bootstrap','session.get','session.create','session.update','session.purge','project.save','chat.send','task.answer','task.cancel','pair.issue','business.retry','work.run'])
+ const allowed = new Set(['device.requests','device.decide','devices.list','device.revoke','pair.pending','pair.approve','drive.configure','invite.issue','bootstrap','session.get','session.create','session.update','session.purge','project.save','chat.send','task.answer','task.cancel','pair.issue','business.retry','work.run'])
  ipcMain.handle('workspace:request',async(e,action,body={})=>{
   if(!views.has(e.sender.id))throw Error('この画面では利用できません')
-  if(action==='status')return client.status()
+  if(action==='status')return {...client.status(), enrollment:!!client.config.enrollment, suggestedName:getSettings().userName||''}
+  if(action==='enroll')return client.enroll(body)
   if(action==='login')return client.login(body)
   if(action==='logout')return client.logout()
   if(action==='bind') { const r=await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender),{title:'このプロジェクトを実行するPCフォルダ',properties:['openDirectory']});if(!r.canceled)return client.bind(body.projectId,r.filePaths[0]);return client.status() }

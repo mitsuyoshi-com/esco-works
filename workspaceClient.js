@@ -24,7 +24,20 @@ class WorkspaceClient {
   }
   async logout() {
     if (this.active) throw Error('実行中の作業を停止してからログアウトしてください')
-    await this.api('logout'); this.stop(); this.config = {}; this.save(); this.changed()
+    try { await this.api('logout') } catch(e) { if(e.status!==401)throw e } this.stop(); this.config = {}; this.save(); this.changed()
+  }
+  async enroll({ url = 'https://esco-corp.sakura.ne.jp/esco-works', name, adminInvite } = {}) {
+    if (this.config.token) return { status: 'approved', user: this.config.user }
+    const u = new URL(url)
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['127.0.0.1','localhost'].includes(u.hostname))) throw Error('HTTPSのURLを指定してください')
+    if (u.username || u.password || u.search || u.hash) throw Error('サーバーURLが不正です')
+    url = u.href.replace(/\/$/, '')
+    if (this.config.enrollment && this.config.url !== url) throw Error('申請済みの接続先を使用してください')
+    this.config = { ...this.config, url, pcId: this.config.pcId || randomUUID(), enrollment: this.config.enrollment || { secret: require('crypto').randomBytes(32).toString('hex'), name } }
+    this.save() // Persist the key before submitting; retries/restarts use the same identity.
+    const r = await this.api('device.enroll', { ...this.config.enrollment, pcName: require('os').hostname(), desktop: true, ...(adminInvite ? { adminInvite } : {}) })
+    if (r.token) { this.config.token = r.token; this.config.user = r.user; delete this.config.enrollment; this.save(); this.start() }
+    return { status: r.status, user: r.user }
   }
   status() { return { url: this.config.url || '', user: this.config.user || null, connected: !!this.config.token, error: this.error || '', folders: this.folders } }
   bind(projectId, folder) { this.folders[projectId || '_default'] = folder; fs.writeFileSync(path.join(this.dir, 'folders.json'), JSON.stringify(this.folders)); return this.status() }

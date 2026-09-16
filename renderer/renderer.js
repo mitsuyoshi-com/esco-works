@@ -475,6 +475,7 @@ $('stopBtn').addEventListener('click', () => window.escoAI.interrupt())
 /* --- 新しいウィンドウ --- */
 $('newWinBtn').addEventListener('click', () => window.escoAI.newWindow())
 $('cloudWorkspaceBtn').addEventListener('click', () => window.escoAI.openWorkspace())
+$('cloudSetupBtn').addEventListener('click', () => { $('settingsDlg').close(); window.escoAI.openWorkspace() })
 
 /* --- ファイルのドラッグ&ドロップ（パスを入力欄に差し込む） --- */
 document.addEventListener('dragover', (e) => e.preventDefault())
