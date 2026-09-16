@@ -33,6 +33,9 @@
     "afterPack": "./afterPack.js",
     "files": [
       "main.js",
+      "workspaceClient.js",
+      "workspaceDesktop.js",
+      "cloudPreload.js",
       "sessions.js",
       "projects.js",
       "business.js",

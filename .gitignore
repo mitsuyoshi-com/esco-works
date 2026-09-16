@@ -5,6 +5,10 @@ build/shots/
 vendor/
 # 中継サーバーのローカル開発データ（トークン等を含む）
 server/data/
+server/sakura/config.php
+server/sakura/data/
+!test/cloud-workspace.cjs
+!test/cloud-ui.cjs
 # 機密（更新用トークンを含む）はコミットしない。配布ビルド時にのみ配置する。
 build/update-config.json
 test/*
@@ -24,3 +28,8 @@ _SECRET*
 
 # 社内情報を含む作業ログは公開repoに絶対に入れない（2026-08-21 履歴からも除去済み）
 _PROJECT_LOG.md
+
+build/upgrade-*.php
+!test/cloud-workspace.cjs
+!test/cloud-ui.cjs
+!test/cloud-drive.cjs

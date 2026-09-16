@@ -20,6 +20,7 @@ const EVENTS = [
 ]
 
 contextBridge.exposeInMainWorld('escoAI', {
+  openWorkspace: () => ipcRenderer.send('workspace:open'),
   init: () => ipcRenderer.invoke('app:init'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   pickFolder: () => ipcRenderer.invoke('folder:pick'),

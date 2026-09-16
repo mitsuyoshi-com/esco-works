@@ -755,6 +755,11 @@ app.whenReady().then(async () => {
     return
   }
 
+  const workspace = require('./workspaceDesktop').setupWorkspace({
+    getSettings: () => settings, folderQueue, sessions: sessionStore, projects: projectStore,
+    recordUsage: cost => { const monthUsd = addUsage(cost); emitAll('usage:updated', { monthUsd }) }
+  })
+  ipcMain.on('workspace:open', e => { if (windows.has(e.sender.id)) workspace.open() })
   const win = createWindow()
   if (workspaceCheck) {
     const timeout = setTimeout(() => app.exit(1), 20000)
