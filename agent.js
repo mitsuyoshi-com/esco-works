@@ -334,7 +334,17 @@ class AgentRunner {
    * 1ターン実行。text: ユーザー入力 / mode: chat|docs|files / workFolder: 作業フォルダ
    * autoApprove: ファイル操作の自動許可（フォルダ整理モードの一括処理向け）
    */
-  async startTurn({ text, mode, workFolder, cwd, autoApprove, permMode, history = [], systemInstructions = '', interview = false }) {
+  async startTurn(args) {
+    // 実行中ターン数を全体で数える（夜間自動更新が作業中に再起動しないための判定）
+    AgentRunner.activeTurns++
+    try {
+      return await this._startTurn(args)
+    } finally {
+      AgentRunner.activeTurns--
+    }
+  }
+
+  async _startTurn({ text, mode, workFolder, cwd, autoApprove, permMode, history = [], systemInstructions = '', interview = false }) {
     const settings = this.getSettings()
     const modeDef = MODES[mode] || MODES.chat
     let model = (settings.models && settings.models[mode]) || 'claude-sonnet-5-5'
@@ -541,6 +551,7 @@ class AgentRunner {
     }
   }
 }
+AgentRunner.activeTurns = 0
 
 function toolChip(name) {
   if (name === 'Bash') return 'Running command'

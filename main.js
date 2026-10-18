@@ -789,7 +789,8 @@ app.whenReady().then(async () => {
   }
 
   // 自動アップデート（配布ビルドのみ有効）
-  updater = setupAutoUpdate(app, emitAll, (m) => console.log(m))
+  updater = setupAutoUpdate(app, emitAll, (m) => console.log(m),
+    () => AgentRunner.activeTurns > 0 || [...contexts.values()].some(c => c.busy))
 
   // 前回スマホ連携ONのまま終了していたら自動再開
   // （tunnel: URLが変わるのでQR再読取が必要 / relay: 固定URLなのでそのまま復帰）

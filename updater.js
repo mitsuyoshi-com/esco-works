@@ -8,8 +8,14 @@
 // 公開リポジトリのため、実行時トークンは不要。
 const REPO = { owner: 'mitsuyoshi-com', repo: 'esco-works' }
 
+// 夜間自動適用: 更新DL済み・この時間帯・作業中でなければ、自動で再起動して更新する
+// （PC・アプリつけっぱなしの社員にも更新を確実に届けるため。2026-10-18 光強代表指示）
+const NIGHT_START_HOUR = 3
+const NIGHT_END_HOUR = 5
+
 // emit(ev, payload): 全ウィンドウへ通知するための関数を受け取る
-function setupAutoUpdate(app, emitAll, log) {
+// isBusy(): AIが作業中なら true（夜間自動適用を見送る）
+function setupAutoUpdate(app, emitAll, log, isBusy = () => false) {
   if (!app.isPackaged) {
     log && log('[updater] 開発モードのため自動更新は無効')
     return
@@ -38,18 +44,36 @@ function setupAutoUpdate(app, emitAll, log) {
   autoUpdater.on('download-progress', (p) =>
     emitAll('update:status', { state: 'downloading', percent: Math.round(p.percent || 0) })
   )
-  autoUpdater.on('update-downloaded', (info) =>
+  let downloaded = false
+  autoUpdater.on('update-downloaded', (info) => {
+    downloaded = true
     emitAll('update:status', { state: 'ready', version: info && info.version })
-  )
+  })
   autoUpdater.on('error', (err) => {
     log && log('[updater] error: ' + (err && err.message))
     emitAll('update:status', { state: 'error', message: err && err.message })
   })
 
-  // 起動直後 + 以後6時間ごとにチェック
+  // 起動直後 + 以後1時間ごとにチェック（夜間適用の前にDLを済ませておくため）
   const check = () => autoUpdater.checkForUpdates().catch(() => {})
   setTimeout(check, 4000)
-  setInterval(check, 6 * 60 * 60 * 1000)
+  setInterval(check, 60 * 60 * 1000)
+
+  // 10分ごとに夜間自動適用の条件を確認
+  setInterval(() => {
+    const hour = new Date().getHours()
+    if (!downloaded || hour < NIGHT_START_HOUR || hour >= NIGHT_END_HOUR) return
+    if (isBusy()) {
+      log && log('[updater] 作業中のため夜間自動更新を見送り')
+      return
+    }
+    log && log('[updater] 夜間自動更新を適用して再起動')
+    try {
+      autoUpdater.quitAndInstall(true, true) // サイレントインストール→自動で再起動
+    } catch {
+      /* ignore */
+    }
+  }, 10 * 60 * 1000)
 
   // renderer から「今すぐ再起動して更新」を受けたら適用
   return {
