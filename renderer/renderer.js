@@ -2,9 +2,9 @@
 const $ = (id) => document.getElementById(id)
 
 const MODELS = [
-  { id: 'claude-sonnet-5', label: 'Sonnet 5（標準・おすすめ）' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5（標準・おすすめ）' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5（軽い・安い）' },
-  { id: 'claude-opus-5', label: 'Opus 5（最高性能・高い）' }
+  { id: 'claude-opus-5-5', label: 'Opus 5.5（費用が大きいため利用停止中）', disabled: true }
 ]
 
 const USD_JPY = 150 // 表示用の概算レート
@@ -387,6 +387,7 @@ async function boot() {
       const o = document.createElement('option')
       o.value = m.id
       o.textContent = m.label
+      o.disabled = !!m.disabled
       $(sel).appendChild(o)
     }
   }

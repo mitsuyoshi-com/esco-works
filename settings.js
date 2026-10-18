@@ -10,9 +10,9 @@ const DEFAULTS = {
   businessFolder: '',
   enableBrowser: false,
   models: {
-    chat: 'claude-sonnet-5',
-    docs: 'claude-sonnet-5',
-    files: 'claude-sonnet-5'
+    chat: 'claude-sonnet-5-5',
+    docs: 'claude-sonnet-5-5',
+    files: 'claude-sonnet-5-5'
   },
   // スマホ連携。mode: off | tunnel（かんたん接続=Quick Tunnel）| relay（サーバー経由=ハイブリッド）
   // enabled は remote.js（トンネル時のRemoteServer）が参照する導出値（mode==='tunnel'）
@@ -21,6 +21,13 @@ const DEFAULTS = {
   relay: { url: '', orgKey: '', pcId: '', pcSecret: '' },
   // ペアリング済み端末の台帳（トンネル方式の表示・監査用のみ）: { deviceId, name, pairedAt, lastSeen }
   remoteDevices: []
+}
+
+// Opusは費用が大きいため使用禁止（2026-10-18 光強代表指示）。旧標準のSonnet 5も含め標準モデルへ寄せる
+const DEFAULT_MODEL = 'claude-sonnet-5-5'
+function normalizeModel(id) {
+  if (!id || id.startsWith('claude-opus') || id === 'claude-sonnet-5') return DEFAULT_MODEL
+  return id
 }
 
 function settingsFile() {
@@ -43,6 +50,7 @@ function loadSettings() {
     // 旧形式 {enabled:true}（mode未導入時代のトンネルON）→ mode:'tunnel' へ移行
     if (raw.remote && raw.remote.enabled && !raw.remote.mode) s.remote.mode = 'tunnel'
     s.remote.enabled = s.remote.mode === 'tunnel'
+    for (const k of Object.keys(s.models)) s.models[k] = normalizeModel(s.models[k])
     return s
   } catch {
     return JSON.parse(JSON.stringify(DEFAULTS))
@@ -81,4 +89,4 @@ function monthUsage() {
   return loadUsage()[monthKey()] || 0
 }
 
-module.exports = { loadSettings, saveSettings, addUsage, monthUsage, DEFAULTS }
+module.exports = { loadSettings, saveSettings, addUsage, monthUsage, normalizeModel, DEFAULTS }

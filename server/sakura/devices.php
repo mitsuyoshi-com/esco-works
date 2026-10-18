@@ -15,8 +15,13 @@ function deviceCall($w,&$s,$action,$b,$token){
   }
   // Private, single-use bootstrap invitation is used only on the owner's PC.
   if(!empty($b['adminInvite'])&&$e['status']==='pending'){$ik=hash('sha256',$b['adminInvite']);$i=$s['invites'][$ik]??null;demand($i&&!empty($i['admin'])&&$i['expires']>time(),'管理用初期設定の期限が切れました',401);$e['status']='approved';$e['admin']=true;$s['enrollments'][$key]=$e;unset($s['invites'][$ik]);}
-  demand($e['expires']>time(),'端末の利用開始申請が期限切れです',401);demand($e['status']!=='denied','この端末は許可されていません',403);
-  if($e['status']!=='approved')return ['status'=>'pending','id'=>$e['id']];
+  // Approval-free enrollment can resume with the original device secret even
+  // after the legacy seven-day request window. Revoked credentials remain
+  // rejected below; bootstrap invitations keep their own expiry check above.
+  demand($e['status']!=='denied','この端末は許可されていません',403);
+  // Owner policy: starting a PC requires no administrator approval.
+  // Includes requests left pending by older clients, retaining their device key.
+  if($e['status']==='pending'){$e['status']='approved';$s['enrollments'][$key]=$e;}
   $access=hash_hmac('sha256','ESCO device enrollment',$secret);$tk=hash('sha256',$access);
   if(empty($e['userId'])){
    $u=['id'=>uid(),'email'=>'','password'=>'','name'=>$e['name'],'disabled'=>false,'admin'=>!empty($e['admin'])];$s['users'][$u['id']]=$u;

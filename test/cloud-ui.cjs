@@ -10,7 +10,7 @@ app.whenReady().then(async()=>{try{
  const call=async(action,body={},token='')=>{const r=await fetch('http://127.0.0.1:18974/api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...body,_accessToken:token})});const j=await r.json();if(!r.ok)throw Error(j.error);return j};
  const admin=await call('login',{email:'one@example.test',password:'test-password-one',desktop:true});
  await js("$('url').value='http://127.0.0.1:18974';$('deviceName').value='UI登録不要';$('deviceForm').requestSubmit()");
- await until(()=>js("$('deviceStart').disabled"));const request=(await call('device.requests',{},admin.token)).requests.find(x=>x.name==='UI登録不要');await call('device.decide',{id:request.id,approved:true},admin.token);await until(()=>js('!!user'));
+ await until(()=>js('!!user'));assert.equal(await js('user.admin'),false);
  const project=await js("mutate('project.save',{name:'UI同期テスト',instructions:''})");setup.client.bind(project.id,data);
  await until(async()=>{const s=await setup.client.api('bootstrap');return s.pcs.some(p=>p.id===setup.client.config.pcId)});
  await js(`selectedProject=${JSON.stringify(project.id)};$('newSession').click()`);await until(()=>js('!!current'));const sid=await js('current.id');

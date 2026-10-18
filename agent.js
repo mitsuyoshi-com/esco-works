@@ -337,7 +337,8 @@ class AgentRunner {
   async startTurn({ text, mode, workFolder, cwd, autoApprove, permMode, history = [], systemInstructions = '', interview = false }) {
     const settings = this.getSettings()
     const modeDef = MODES[mode] || MODES.chat
-    const model = (settings.models && settings.models[mode]) || 'claude-sonnet-5'
+    let model = (settings.models && settings.models[mode]) || 'claude-sonnet-5-5'
+    if (model.startsWith('claude-opus')) model = 'claude-sonnet-5-5' // Opusは使用禁止（費用対策）
     const effectiveCwd = workFolder || cwd // 未選択時はスクラッチ領域で動く
     this._permMode = permMode || 'normal' // normal | plan | bypass
     if (interview) this._permMode = 'readonly'

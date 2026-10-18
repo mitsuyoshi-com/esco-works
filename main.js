@@ -761,6 +761,8 @@ app.whenReady().then(async () => {
   })
   ipcMain.on('workspace:open', e => { if (windows.has(e.sender.id)) workspace.open() })
   const win = createWindow()
+  // Open the existing mobile pairing workspace directly for setup.
+  if (process.argv.includes('--mobile-connect') && !workspaceCheck) workspace.open()
   if (workspaceCheck) {
     const timeout = setTimeout(() => app.exit(1), 20000)
     win.webContents.once('did-finish-load', async () => {
