@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('escoAI', {
   updateSession: (input) => ipcRenderer.invoke('sessions:update', input),
   purgeSession: (id) => ipcRenderer.invoke('sessions:purge', id),
   saveProject: (input) => ipcRenderer.invoke('projects:save', input),
+  deleteProject: (id) => ipcRenderer.invoke('projects:delete', id),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
   projectFolder: () => ipcRenderer.invoke('projects:folder'),
   businessStatus: () => ipcRenderer.invoke('business:status'),
   businessSync: () => ipcRenderer.invoke('business:sync'),

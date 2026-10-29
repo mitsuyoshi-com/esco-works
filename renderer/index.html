@@ -53,13 +53,17 @@
         <input type="checkbox" id="autoApprove" /> ファイル操作を自動許可
       </label>
     </div>
-    <div class="inputRow">
-      <textarea id="input" rows="2" placeholder="メッセージを入力（Enterで送信 / Shift+Enterで改行）"></textarea>
+    <div class="inputRow" id="inputRow">
+      <div class="inputBox">
+        <textarea id="input" rows="2" placeholder="メッセージを入力（Enterで送信 / Shift+Enterで改行）"></textarea>
+        <button id="expandBtn" class="expandBtn" type="button" title="入力欄を大きくする（Escで戻す）">⤢</button>
+      </div>
       <button id="sendBtn" class="primary">送信</button>
       <button id="stopBtn" hidden>停止</button>
     </div>
     <div class="status">
       <span id="toolStatus"></span>
+      <span id="charCount"></span>
       <span class="spacer"></span>
       <span id="cost"></span>
     </div>
@@ -79,7 +83,12 @@
     <label>名前<input id="editName" maxlength="120" /></label>
     <div id="projectFields"><button id="pickProjectFolder" type="button">標準フォルダを選択</button><p id="projectFolderLabel"></p><label>共通指示<textarea id="projectInstructions" rows="5" placeholder="このプロジェクトで共通して守るルール"></textarea></label></div>
     <label id="moveField">移動先<select id="moveProject"></select></label>
-    <p id="editError" role="status"></p><div class="dlgBtns"><button id="editSave" class="primary">保存</button><button id="editCancel">閉じる</button></div>
+    <p id="editError" role="status"></p><div class="dlgBtns"><button id="editDelete" class="danger" type="button" hidden>このプロジェクトを削除</button><button id="editSave" class="primary">保存</button><button id="editCancel">閉じる</button></div>
+  </dialog>
+  <dialog id="confirmDlg">
+    <h3 id="confirmTitle">確認</h3>
+    <p id="confirmDetail" class="confirmDetail"></p>
+    <div class="dlgBtns"><button id="confirmCancel" type="button">キャンセル</button><button id="confirmOk" class="danger" type="button">削除する</button></div>
   </dialog>
   <dialog id="sessionMenuDlg"><h3 id="menuTitle">セッション管理</h3><div id="sessionMenuActions"></div><button id="menuClose">閉じる</button></dialog>
   <dialog id="settingsDlg">
@@ -106,6 +115,14 @@
     <label class="chk">
       <input type="checkbox" id="setBrowser" /> ブラウザ操作を有効化（AIがChromeでWeb操作できます。※応答が10秒ほど遅くなります。必要なときだけON推奨）
     </label>
+    <label class="chk">
+      <input type="checkbox" id="setCtrlEnter" /> 長文モード（Ctrl+Enterで送信・Enterは改行。長い文章をよく書く方におすすめ）
+    </label>
+    <fieldset>
+      <legend>アプリの更新</legend>
+      <div class="update-check"><button id="updateCheckBtn" type="button">今すぐ更新を確認</button><span id="updateCheckStatus"></span></div>
+      <p class="remote-hint">新しいバージョンは起動時と1時間ごとに自動で確認し、深夜3〜5時に自動で適用されます。すぐ適用したいときはここで確認し、画面上部に出る「今すぐ再起動して更新」を押してください。</p>
+    </fieldset>
     <fieldset>
       <legend>スマホ連携</legend><p>登録不要。初回にQRを読み、PCで許可するとスマホ単体で使えます。</p><button id="cloudSetupBtn" type="button">スマホとつなぐ・同期画面を開く</button><details><summary>従来の接続設定</summary>
       <div class="remote-modes">

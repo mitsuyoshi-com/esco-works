@@ -508,8 +508,10 @@ app.whenReady().then(async () => {
     const view = windows.get(e.sender.id)
     const session = sessionStore.create()
     if (input.projectId) {
-      const project = projectStore.get(input.projectId)
-      session.projectId = project.id; session.workFolder = project.folder
+      // 別ウィンドウで削除済みのプロジェクトが指定されたら未所属として作る
+      let project = null
+      try { project = projectStore.get(input.projectId) } catch { project = null }
+      if (project) { session.projectId = project.id; session.workFolder = project.folder }
     }
     if (input.kind === 'business') { session.kind = 'business'; session.title = '私の業務を教える'; session.customTitle = true; session.pinned = true }
     sessionStore.save(session)
@@ -552,6 +554,20 @@ app.whenReady().then(async () => {
     emitAll('sessions:changed', {}); return true
   })
   ipcMain.handle('projects:save', (_e, input) => { const p = projectStore.save(input); emitAll('sessions:changed', {}); return p })
+  // プロジェクト削除：定義を消し、所属会話は「プロジェクト未所属」へ移す（会話履歴・作業フォルダは消さない）。確認は画面側で済ませてから呼ぶ
+  ipcMain.handle('projects:delete', (_e, id) => {
+    const project = projectStore.get(id)
+    const members = sessionStore.list().filter(s => s.projectId === project.id)
+    if (members.some(s => contexts.get(s.id)?.busy)) throw new Error('このプロジェクト内で実行中の作業を停止してから削除してください')
+    for (const item of members) {
+      const session = contexts.get(item.id)?.history.session || sessionStore.read(item.id)
+      session.projectId = null
+      sessionStore.save(session)
+    }
+    projectStore.remove(project.id)
+    emitAll('sessions:changed', {})
+    return { id: project.id, moved: members.length }
+  })
   ipcMain.handle('projects:folder', async e => { const r = await dialog.showOpenDialog(windows.get(e.sender.id).win, { properties: ['openDirectory'] }); return r.canceled ? null : r.filePaths[0] })
   ipcMain.handle('business:status', () => businessStore.status())
   ipcMain.handle('business:sync', () => businessStore.sync())
@@ -580,6 +596,8 @@ app.whenReady().then(async () => {
 
   ipcMain.on('window:new', () => createWindow())
   ipcMain.on('update:install', () => updater && updater.quitAndInstall())
+  // 設定画面の「更新を確認」。結果は update:status イベントで全ウィンドウへ届く
+  ipcMain.handle('update:check', () => (updater ? updater.checkNow() : Promise.resolve({ state: 'dev' })))
 
   /* --- スマホ連携のIPC --- */
   ipcMain.handle('remote:setMode', (_e, mode) => {
@@ -775,7 +793,11 @@ app.whenReady().then(async () => {
           await window.escoAI.updateSession({id:chat.id,action:'archive'});
           const restored = await window.escoAI.updateSession({id:chat.id,action:'restore'});
           const list = await window.escoAI.listSessions();
-          return init.version === ${JSON.stringify(app.getVersion())} && restored.title === '配布版会話' && list.projects.length === 1 && !!document.getElementById('filesPanel');
+          const deleted = await window.escoAI.deleteProject(project.id);
+          const after = await window.escoAI.listSessions();
+          const detached = after.items.find(s => s.id === chat.id);
+          return init.version === ${JSON.stringify(app.getVersion())} && restored.title === '配布版会話' && list.projects.length === 1 && !!document.getElementById('filesPanel')
+            && deleted.moved === 1 && after.projects.length === 0 && !!detached && detached.projectId === null && !!document.getElementById('expandBtn');
         })()`)
         const cloudWin = workspace.open()
         const cloudOK = await new Promise(resolve => cloudWin.webContents.once('did-finish-load', async () => {
@@ -819,14 +841,19 @@ app.whenReady().then(async () => {
     const shotsDir = path.join(__dirname, 'build', 'shots')
     fs.mkdirSync(shotsDir, { recursive: true })
     const save = async (name) => {
+      // capturePage は直前のフレームを返すことがあるので、1枚捨ててから撮る
+      await win.webContents.capturePage()
+      await new Promise((r) => setTimeout(r, 400))
       const img = await win.webContents.capturePage()
       fs.writeFileSync(path.join(shotsDir, name), img.toPNG())
       console.log('[shot]', name)
     }
     win.webContents.once('did-finish-load', async () => {
-      await new Promise((r) => setTimeout(r, 800))
+      win.show(); win.focus(); win.moveTop() // 隠れていると capturePage が空画像になる
+      await new Promise((r) => setTimeout(r, 2000)) // boot() がAPIキー未設定時に設定を自動で開く(700ms)のを待ってから閉じる
       // デモ会話を注入
       await win.webContents.executeJavaScript(`(function(){
+        const sd=document.getElementById('settingsDlg'); if(sd.open) sd.close();
         const M=document.getElementById('messages');
         const add=(cls,html)=>{const d=document.createElement('div');d.className='msg '+cls;d.innerHTML=html;M.appendChild(d);return d};
         M.innerHTML='';
@@ -840,6 +867,16 @@ app.whenReady().then(async () => {
       })()`)
       await new Promise((r) => setTimeout(r, 500))
       await save('main.png')
+      // 入力欄の長文表示の確認用（--screenshot-long を併用）
+      if (process.argv.includes('--screenshot-long')) {
+        const long = Array.from({ length: 14 }, (_, i) => `${i + 1}行目：三股町の太陽光パネル破損について、保険会社へ提出する見積書の内訳を整理してください。`).join('\n')
+        await win.webContents.executeJavaScript(`(function(){const t=document.getElementById('input');t.value=${JSON.stringify(long)};t.dispatchEvent(new Event('input'));})()`)
+        await new Promise((r) => setTimeout(r, 300)); await save('input-long.png')
+        await win.webContents.executeJavaScript(`document.getElementById('expandBtn').click()`)
+        await new Promise((r) => setTimeout(r, 300)); await save('input-expanded.png')
+        await win.webContents.executeJavaScript(`(function(){document.getElementById('expandBtn').click();const t=document.getElementById('input');t.value='';t.dispatchEvent(new Event('input'));})()`)
+        await new Promise((r) => setTimeout(r, 300))
+      }
       await win.webContents.executeJavaScript(`document.getElementById('settingsDlg').showModal()`)
       await new Promise((r) => setTimeout(r, 400))
       await save('settings.png')

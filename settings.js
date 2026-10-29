@@ -9,6 +9,8 @@ const DEFAULTS = {
   staffId: '',
   businessFolder: '',
   enableBrowser: false,
+  // 長文モード：ONなら Ctrl+Enter で送信・Enter は改行（誤送信防止）。既定は従来どおり Enter 送信
+  sendWithCtrlEnter: false,
   models: {
     chat: 'claude-sonnet-5-5',
     docs: 'claude-sonnet-5-5',

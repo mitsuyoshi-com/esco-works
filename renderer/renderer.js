@@ -104,7 +104,21 @@ function editProject(project = null) {
   $('projectFields').hidden = false; $('moveField').hidden = true
   $('projectFolderLabel').textContent = editState.folder || 'フォルダ未選択'
   $('projectInstructions').value = project?.instructions || ''
+  $('editDelete').hidden = !project // 既存プロジェクトの設定時だけ削除ボタンを出す
   $('editError').textContent = ''; $('editDlg').showModal()
+}
+// 確認ダイアログ（OSの標準ダイアログではなく画面内）。true=実行
+function confirmDialog(title, detail, okLabel = '削除する') {
+  return new Promise(resolve => {
+    const dlg = $('confirmDlg')
+    $('confirmTitle').textContent = title; $('confirmDetail').textContent = detail; $('confirmOk').textContent = okLabel
+    const done = (ok) => { dlg.removeEventListener('close', onClose); $('confirmOk').onclick = null; $('confirmCancel').onclick = null; if (dlg.open) dlg.close(); resolve(ok) }
+    const onClose = () => done(false)
+    $('confirmOk').onclick = () => done(true)
+    $('confirmCancel').onclick = () => done(false)
+    dlg.addEventListener('close', onClose)
+    dlg.showModal()
+  })
 }
 function openSessionMenu(session) {
   $('menuTitle').textContent = session.title
@@ -115,11 +129,11 @@ function openSessionMenu(session) {
   }); box.appendChild(btn) }
   action('名前を変更', () => {
     editState = {type:'rename',session}; $('editHeading').textContent = '名前を変更'; $('editName').value = session.title
-    $('editName').parentElement.hidden = false; $('projectFields').hidden = true; $('moveField').hidden = true; $('editError').textContent = ''; $('editDlg').showModal()
+    $('editName').parentElement.hidden = false; $('projectFields').hidden = true; $('moveField').hidden = true; $('editDelete').hidden = true; $('editError').textContent = ''; $('editDlg').showModal()
   })
   action('プロジェクトへ移動', () => {
     editState = {type:'move',session}; $('editHeading').textContent = 'プロジェクトへ移動'
-    $('editName').parentElement.hidden = true; $('projectFields').hidden = true; $('moveField').hidden = false; $('moveProject').replaceChildren()
+    $('editName').parentElement.hidden = true; $('projectFields').hidden = true; $('moveField').hidden = false; $('editDelete').hidden = true; $('moveProject').replaceChildren()
     for (const p of [{id:'',name:'プロジェクト未所属'}, ...projects]) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; $('moveProject').appendChild(o) }
     $('moveProject').value = session.projectId || ''; $('editError').textContent = ''; $('editDlg').showModal()
   })
@@ -142,6 +156,20 @@ async function businessRefresh() {
 $('newProjectBtn').addEventListener('click', () => editProject())
 $('pickProjectFolder').addEventListener('click', async () => { const folder = await window.escoAI.projectFolder(); if (folder) { editState.folder = folder; $('projectFolderLabel').textContent = folder } })
 $('editCancel').addEventListener('click', () => $('editDlg').close())
+$('editDelete').addEventListener('click', async () => {
+  const p = editState?.type === 'project' ? editState.project : null
+  if (!p) return
+  const count = sessionItems.filter(s => s.projectId === p.id).length
+  const detail = (count ? `所属する会話 ${count} 件は「プロジェクト未所属」へ移動します。` : '所属する会話はありません。') + '\n会話履歴と、標準フォルダ内のファイルは削除しません。'
+  if (!await confirmDialog(`プロジェクト「${p.name}」を削除しますか？`, detail)) return
+  try {
+    await window.escoAI.deleteProject(p.id)
+    collapsedProjects.delete(p.id); localStorage.setItem('collapsedProjects', JSON.stringify([...collapsedProjects]))
+    if (selectedProject === p.id) selectedProject = null
+    $('editDlg').close(); await refreshSessions()
+    historyNotice(`プロジェクト「${p.name}」を削除しました`)
+  } catch(e) { $('editError').textContent = e.message }
+})
 $('menuClose').addEventListener('click', () => $('sessionMenuDlg').close())
 $('editSave').addEventListener('click', async () => {
   try {
@@ -231,6 +259,8 @@ async function refreshSessions() {
     if (request !== sessionListRequest) return
     sessionItems = result.items
     projects = result.projects || []
+    // 別ウィンドウで削除されたプロジェクトを選択中のままにしない
+    if (selectedProject && !projects.some(p => p.id === selectedProject)) selectedProject = null
     activeSessionId = result.currentId
     renderSessions()
   } catch (e) { historyNotice(`履歴を取得できませんでした: ${e.message}`) }
@@ -252,6 +282,7 @@ function applySession(session) {
   setPermMode('normal')
   $('autoApprove').checked = false
   $('input').value = drafts.get(session.id) || ''
+  resizeInput()
   $('messages').replaceChildren()
   for (const m of session.messages) {
     const el = addMsg(m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'ai', m.text)
@@ -374,6 +405,8 @@ async function boot() {
   $('sideTitle').textContent = hasFolder ? folderLabel(init.workFolder) : 'フォルダ未選択'
   $('keyWarn').hidden = init.hasApiKey
   if (init.version) $('verLabel').textContent = 'v' + init.version
+  applyInputMode()
+  resizeInput()
   updateCost()
   refreshTree()
   await refreshSessions()
@@ -443,6 +476,7 @@ async function send() {
   if (!text || busy) return
   if (currentSession?.kind === 'business' && !settingsCache.userName?.trim()) { $('settingsBtn').click(); return }
   $('input').value = ''
+  resizeInput()
   addMsg('user', text)
   currentAiEl = null
   currentAiRaw = ''
@@ -453,7 +487,7 @@ async function send() {
   } catch (e) {
     if (activeSessionId === sentSession) {
       addMsg('error', String(e && e.message ? e.message : e))
-      if (!$('input').value) $('input').value = text
+      if (!$('input').value) { $('input').value = text; resizeInput() }
     }
   }
   if (activeSessionId === sentSession) { clearPending(); setBusy(false) }
@@ -466,12 +500,57 @@ $('input').addEventListener('keydown', (e) => {
     cyclePermMode()
     return
   }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  // Esc で「大きく書く」モードを戻す
+  if (e.key === 'Escape' && inputExpanded) {
     e.preventDefault()
-    send()
+    setInputExpanded(false)
+    return
+  }
+  if (e.key === 'Enter' && !e.isComposing) {
+    // 通常：Enter送信・Shift+Enter改行 ／ 長文モード：Ctrl+Enter送信・Enter改行
+    const wantSend = ctrlEnterMode() ? e.ctrlKey : !e.shiftKey
+    if (wantSend) {
+      e.preventDefault()
+      send()
+    }
   }
 })
 $('stopBtn').addEventListener('click', () => window.escoAI.interrupt())
+
+/* --- 入力欄：自動伸縮・大きく書くモード・文字数 --- */
+let inputExpanded = false
+try { inputExpanded = localStorage.getItem('inputExpanded') === '1' } catch { /* ignore */ }
+function ctrlEnterMode() { return !!(settingsCache && settingsCache.sendWithCtrlEnter) }
+function applyInputMode() {
+  $('input').placeholder = ctrlEnterMode()
+    ? 'メッセージを入力（Ctrl+Enterで送信 / Enterで改行）'
+    : 'メッセージを入力（Enterで送信 / Shift+Enterで改行）'
+}
+function resizeInput() {
+  const t = $('input')
+  if (inputExpanded) {
+    t.style.height = '' // 高さはCSS（50vh）に任せる
+  } else {
+    t.style.height = 'auto'
+    const max = Math.floor(window.innerHeight * 0.4)
+    t.style.height = `${Math.min(t.scrollHeight, max)}px`
+  }
+  const n = t.value.length
+  $('charCount').textContent = n >= 200 ? `${n.toLocaleString()}文字` : ''
+}
+function setInputExpanded(on) {
+  inputExpanded = on
+  $('inputRow').classList.toggle('expanded', on)
+  $('expandBtn').textContent = on ? '⤡' : '⤢'
+  $('expandBtn').title = on ? '入力欄を元の大きさに戻す（Esc）' : '入力欄を大きくする（Escで戻す）'
+  try { localStorage.setItem('inputExpanded', on ? '1' : '0') } catch { /* ignore */ }
+  resizeInput()
+  $('input').focus()
+}
+$('expandBtn').addEventListener('click', () => setInputExpanded(!inputExpanded))
+$('input').addEventListener('input', resizeInput)
+window.addEventListener('resize', resizeInput)
+setInputExpanded(inputExpanded)
 
 /* --- 新しいウィンドウ --- */
 $('newWinBtn').addEventListener('click', () => window.escoAI.newWindow())
@@ -492,6 +571,7 @@ document.addEventListener('drop', (e) => {
   if (paths.length === 0) return
   const tag = paths.map((p) => `（ファイル: ${p}）`).join('\n')
   $('input').value = $('input').value ? `${$('input').value}\n${tag}` : `${tag}\n`
+  resizeInput()
   $('input').focus()
 })
 
@@ -660,6 +740,7 @@ window.escoAI.on('agent:choice', (req) => addChoiceCard(req))
 // 他ウィンドウでの保存を反映（開いていない間の変更も取りこぼさない）
 window.escoAI.on('settings:changed', (s) => {
   settingsCache = s
+  applyInputMode()
 })
 $('settingsBtn').addEventListener('click', async () => {
   // 開く直前に最新設定を取り直し、複数ウィンドウでの巻き戻りを防ぐ
@@ -676,6 +757,8 @@ $('settingsBtn').addEventListener('click', async () => {
   $('mDocs').value = settingsCache.models.docs
   $('mFiles').value = settingsCache.models.files
   $('setBrowser').checked = !!settingsCache.enableBrowser
+  $('setCtrlEnter').checked = !!settingsCache.sendWithCtrlEnter
+  $('updateCheckStatus').textContent = ''
   try {
     renderRemoteStatus(await window.escoAI.remoteStatus())
   } catch {
@@ -689,6 +772,7 @@ $('setSave').addEventListener('click', async () => {
     apiKey: $('setKey').value.trim(),
     userName: $('setName').value.trim(),
     enableBrowser: $('setBrowser').checked,
+    sendWithCtrlEnter: $('setCtrlEnter').checked,
     models: {
       chat: $('mChat').value,
       docs: $('mDocs').value,
@@ -697,8 +781,25 @@ $('setSave').addEventListener('click', async () => {
   }
   await window.escoAI.saveSettings(next)
   settingsCache = { ...settingsCache, ...next }
+  applyInputMode()
   if (next.apiKey) $('keyWarn').hidden = true
   $('settingsDlg').close()
+})
+// 「今すぐ更新を確認」：結果は update:status イベント側でも表示される
+let manualUpdateCheck = false
+$('updateCheckBtn').addEventListener('click', async () => {
+  manualUpdateCheck = true
+  $('updateCheckStatus').textContent = '確認中…'
+  $('updateCheckBtn').disabled = true
+  try {
+    const r = await window.escoAI.checkUpdate()
+    if (r.state === 'dev') $('updateCheckStatus').textContent = '開発モードのため更新確認はできません'
+    else if (r.state === 'error') $('updateCheckStatus').textContent = `確認できませんでした（${r.message || 'ネットワークを確認してください'}）`
+  } catch (e) {
+    $('updateCheckStatus').textContent = `確認できませんでした（${e.message}）`
+  } finally {
+    $('updateCheckBtn').disabled = false
+  }
 })
 
 /* --- スマホ連携（設定ダイアログ内） --- */
@@ -808,6 +909,16 @@ window.escoAI.on('update:status', (s) => {
     msg.textContent = `新しいバージョン ${s.version || ''} の準備ができました。`
   } else {
     bar.hidden = true // checking / none / error は黙って隠す
+  }
+  // 設定画面から手動確認したときだけ、結果を設定画面内に文字で出す
+  if (manualUpdateCheck) {
+    const st = $('updateCheckStatus')
+    if (s.state === 'checking') st.textContent = '確認中…'
+    else if (s.state === 'none') { st.textContent = `お使いのバージョンが最新です（${$('verLabel').textContent}）`; manualUpdateCheck = false }
+    else if (s.state === 'available') st.textContent = `新しいバージョン ${s.version || ''} が見つかりました。ダウンロードしています…`
+    else if (s.state === 'downloading') st.textContent = `ダウンロード中… ${s.percent || 0}%`
+    else if (s.state === 'ready') { st.textContent = `バージョン ${s.version || ''} の準備ができました。この画面を閉じて、上部の「今すぐ再起動して更新」を押してください。`; manualUpdateCheck = false }
+    else if (s.state === 'error') { st.textContent = `確認できませんでした（${s.message || ''}）`; manualUpdateCheck = false }
   }
 })
 $('updateBtn').addEventListener('click', () => window.escoAI.installUpdate())

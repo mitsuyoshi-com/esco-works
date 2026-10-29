@@ -23,5 +23,11 @@ class ProjectStore {
     fs.renameSync(file + '.tmp', file)
     return project
   }
+  // プロジェクト定義だけを消す。所属会話の付け替えは呼び出し側（main.js）が行う
+  remove(id) {
+    const project = this.get(id)
+    fs.unlinkSync(this.file(project.id))
+    return project
+  }
 }
 module.exports = { ProjectStore }

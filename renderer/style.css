@@ -213,7 +213,7 @@ main {
   gap: 10px;
 }
 .msg {
-  max-width: 78%;
+  max-width: 88%;
   padding: 10px 14px;
   border-radius: 12px;
   font-size: 14px;
@@ -315,16 +315,32 @@ footer {
   padding: 8px 14px 10px;
 }
 #autoWrap { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
-.inputRow { display: flex; gap: 8px; }
+.inputRow { display: flex; gap: 8px; align-items: flex-end; }
+.inputBox { flex: 1; min-width: 0; position: relative; display: flex; }
 textarea {
   flex: 1;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 34px 8px 10px;
   font-family: inherit;
   font-size: 14px;
+  line-height: 1.6;
   resize: none;
 }
+/* 入力量に合わせて自動で伸びる（最小2行・最大は画面の40%、超えたら中でスクロール） */
+#input { min-height: 62px; max-height: 40vh; overflow-y: auto; }
+/* 「大きく書く」モード：画面の半分まで固定で広げる */
+.inputRow.expanded #input { height: 50vh !important; max-height: 50vh; }
+.expandBtn {
+  position: absolute; top: 4px; right: 4px;
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+}
+.expandBtn:hover { background: var(--accent-weak); color: var(--accent); }
+.inputRow.expanded .expandBtn { color: var(--accent); background: var(--accent-weak); }
+#charCount { margin-left: 10px; }
+#charCount:empty { display: none; }
 textarea:focus { outline: 2px solid var(--accent-weak); border-color: var(--accent); }
 button.primary {
   background: var(--accent);
@@ -370,6 +386,22 @@ dialog label.chk { display: flex; align-items: flex-start; gap: 6px; }
 dialog label.chk input { width: auto; margin-top: 2px; }
 dialog legend { font-size: 12px; color: var(--muted); padding: 0 6px; }
 .dlgBtns { display: flex; gap: 8px; justify-content: flex-end; }
+.dlgBtns #editDelete { margin-right: auto; }
+button.danger {
+  background: var(--panel);
+  color: #b42318;
+  border: 1px solid #f0c3c3;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+button.danger:hover { background: #fdecec; }
+#confirmCancel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+.confirmDetail { font-size: 13px; line-height: 1.7; color: var(--text); margin-bottom: 14px; white-space: pre-wrap; }
+.update-check { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.update-check button { border: 1px solid var(--accent); background: var(--accent-weak); color: var(--accent); border-radius: 7px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+#updateCheckStatus { font-size: 12px; color: var(--muted); }
 
 /* --- スマホ連携（設定内） --- */
 .remote-modes { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }

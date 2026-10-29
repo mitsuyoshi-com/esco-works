@@ -83,7 +83,13 @@ function setupAutoUpdate(app, emitAll, log, isBusy = () => false) {
       } catch {
         /* ignore */
       }
-    }
+    },
+    // 設定画面の「更新を確認」。進捗・結果は update:status イベント側で画面に出す
+    checkNow: () =>
+      autoUpdater
+        .checkForUpdates()
+        .then((r) => ({ state: 'checked', version: r && r.updateInfo && r.updateInfo.version }))
+        .catch((e) => ({ state: 'error', message: e && e.message }))
   }
 }
 

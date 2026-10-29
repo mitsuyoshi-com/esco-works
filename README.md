@@ -70,6 +70,14 @@ npm run dist
 - 実行中は会話切替を制限。同じ会話を別ウィンドウで開いている場合は、そのウィンドウを表示します。
 - SDKのセッションIDも保存して続きを再開。SDK側の履歴が消えた場合や作業フォルダを変えた場合は、直近40メッセージ・最大60,000文字を文脈として引き継ぎます。ツールの内部ログや過去の許可状態は復元しません。
 - この機能を導入する前の会話、スマホ側の会話は、この一覧への自動取り込み対象には含みません。
+- プロジェクトはプロジェクト名横の「…」→「このプロジェクトを削除」で削除できる（v0.3.4）。所属会話は「プロジェクト未所属」へ移すだけで履歴・フォルダは消さない。実行中の会話があるプロジェクトは削除不可。IPCは `projects:delete`、検証は `electron . --workspace-check`（作成→削除→未所属化まで自動確認）。
+
+### 入力欄（v0.3.4）
+
+- 入力量に合わせて自動で伸びる（最小2行・最大 40vh・超えたら内側スクロール）。右上の ⤢ で 50vh 固定の「大きく書く」モード（Esc で戻る・状態は localStorage）。200文字以上で文字数を表示。
+- 設定「長文モード」（`settings.sendWithCtrlEnter`）ON で Ctrl+Enter 送信・Enter 改行。既定 OFF（Enter 送信・Shift+Enter 改行）。
+- 設定「アプリの更新」→「今すぐ更新を確認」（IPC `update:check`）。結果は `update:status` イベントで設定画面内に表示。
+- 画面確認: `electron . --screenshot --screenshot-long` で `build/shots/input-long.png`・`input-expanded.png` を生成。
 - 保存テスト: `node test/sessions-test.cjs`。画面・IPCテスト: `electron test/history-ui.cjs`（一時フォルダとテスト応答を使い、API課金なし）。後者の `TEST_DATA` を渡し `electron test/history-ui.cjs --restore <TEST_DATA>` でプロセス再起動後の復元も検証できます。
 
 - **🪟 新しいウィンドウ** — ウィンドウごとに独立した会話・作業フォルダ・AI実行。
