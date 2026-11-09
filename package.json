@@ -1,25 +1,17 @@
 {
   "name": "esco-ai",
-  "version": "0.3.4",
-  "description": "ESCO Works - エスコ社内AIアシスタント (Claude Agent SDK × Electron)",
+  "version": "0.4.0",
+  "description": "ESCO Works - エスコ社内AIアシスタント（クラウド版の画面を表示する殻）",
   "main": "main.js",
   "author": "ULTRIX",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "smoke": "node test/smoke.mjs",
-    "remote-sim": "node test/remote-sim.mjs",
-    "relay-sim": "node test/relay-sim.mjs",
-    "fetch:cloudflared": "node scripts/fetch-cloudflared.mjs",
-    "predist": "node scripts/fetch-cloudflared.mjs",
-    "dist": "electron-builder --win"
+    "test": "node test/run-all.cjs",
+    "dist": "electron-builder --win --x64"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.218",
-    "electron-updater": "^6.8.9",
-    "qrcode": "^1.5.4",
-    "ws": "^8.21.3",
-    "zod": "^4.4.3"
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -33,31 +25,14 @@
     "afterPack": "./afterPack.js",
     "files": [
       "main.js",
-      "workspaceClient.js",
-      "workspaceDesktop.js",
-      "cloudPreload.js",
-      "sessions.js",
-      "projects.js",
-      "business.js",
-      "folderQueue.js",
-      "preload.js",
-      "agent.js",
-      "settings.js",
+      "config.js",
+      "nameMatch.js",
+      "login.js",
+      "legacy.js",
+      "importer.js",
       "updater.js",
-      "remote.js",
-      "tunnel.js",
-      "relayClient.js",
-      "mcp/**",
-      "renderer/**"
-    ],
-    "extraResources": [
-      {
-        "from": "vendor/cloudflared",
-        "to": "bin"
-      }
-    ],
-    "asarUnpack": [
-      "node_modules/@anthropic-ai/claude-agent-sdk*/**"
+      "shell/**",
+      "build/join-key.txt"
     ],
     "win": {
       "target": [

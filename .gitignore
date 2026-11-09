@@ -1,8 +1,6 @@
 node_modules/
 dist/
 build/shots/
-# cloudflared.exe（約55MB）はビルド時に scripts/fetch-cloudflared.mjs で取得する
-vendor/
 # 中継サーバーのローカル開発データ（トークン等を含む）
 server/data/
 server/sakura/config.php
@@ -33,3 +31,10 @@ build/upgrade-*.php
 !test/cloud-workspace.cjs
 !test/cloud-ui.cjs
 !test/cloud-drive.cjs
+
+# 初回ログイン用の鍵（社内公開リンクの鍵）。配布ビルド時にだけ置く。絶対にコミットしない
+build/join-key.txt
+# 旧データの取り込みテストの一時物
+test/.tmp/
+!test/*.cjs
+!test/mock-server.cjs
