@@ -1,0 +1,92 @@
+# Windows（x64）のインストーラーを GitHub のビルド機で作る。
+#  開発用のPC（arm64・Smart App Control あり）ではインストーラーの仕上げが止められることがあるため。
+#  ここでは作って確かめるところまで。公開（Release への掲載）は、できあがったものを確認してから手で行う。
+#  必要な secret：ESCO_JOIN_KEY（初回ログイン用の鍵）。ESCO_SELFTEST_KEY は任意（あれば、パッケージ版で本物のAIを1回だけ動かして確かめる）。
+name: build-windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 部品を入れる
+        run: npm ci --no-audit --no-fund
+
+      - name: 名前の照合のテスト
+        run: node test/name-test.cjs
+
+      - name: 開発版でのエージェントの総合テスト（にせのエージェント）
+        run: node test/agent-e2e.cjs
+
+      - name: 初回ログイン用の鍵を置く
+        shell: pwsh
+        env:
+          JOIN_KEY: ${{ secrets.ESCO_JOIN_KEY }}
+        run: |
+          if (-not $env:JOIN_KEY) { throw 'secret ESCO_JOIN_KEY がありません' }
+          $v = $env:JOIN_KEY.Trim()
+          if ($v -notmatch '^[A-Za-z0-9_-]{20,200}$' -and $v -notmatch '[#?&]k=[A-Za-z0-9_-]{20,200}') { throw '鍵の形が正しくありません' }
+          [IO.File]::WriteAllText((Join-Path $PWD 'build/join-key.txt'), $v, (New-Object Text.UTF8Encoding $false))
+
+      - name: インストーラーを作る（x64）
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: x64 でできているかを確かめる
+        shell: pwsh
+        run: |
+          function PeArch($f) { $fs = [IO.File]::OpenRead($f); try { $br = New-Object IO.BinaryReader($fs); $fs.Position = 0x3C; $o = $br.ReadInt32(); $fs.Position = $o + 4; '0x{0:X4}' -f $br.ReadUInt16() } finally { $fs.Close() } }
+          $first = Get-Content dist/builder-debug.yml -TotalCount 1
+          $exe = PeArch 'dist/win-unpacked/ESCO Works.exe'
+          $claude = Get-ChildItem 'dist/win-unpacked/resources/app.asar.unpacked' -Recurse -Filter claude.exe | Select-Object -First 1
+          if (-not $claude) { throw 'claude.exe が同梱されていません' }
+          $c = PeArch $claude.FullName
+          "builder-debug=$first exe=$exe claude=$c"
+          if ($first -ne 'x64:' -or $exe -ne '0x8664' -or $c -ne '0x8664') { throw 'x64 ではありません' }
+          $setup = Get-ChildItem dist -Filter 'ESCO-Works-Setup-*.exe' | Sort-Object LastWriteTime | Select-Object -Last 1
+          "setup=$($setup.Name) size=$($setup.Length)"
+          if ($setup.Length -lt 100MB) { throw 'インストーラーが小さすぎます（作りかけの可能性）' }
+
+      - name: パッケージ版でのエージェントの総合テスト（にせのエージェント）
+        shell: pwsh
+        run: |
+          $env:ESCO_E2E_EXE = (Resolve-Path 'dist/win-unpacked/ESCO Works.exe').Path
+          node test/agent-e2e.cjs
+
+      - name: パッケージ版で本物のAIを1回動かす（secret があるときだけ）
+        shell: pwsh
+        env:
+          ESCO_SELFTEST_KEY: ${{ secrets.ESCO_SELFTEST_KEY }}
+        run: |
+          if (-not $env:ESCO_SELFTEST_KEY) { 'secret ESCO_SELFTEST_KEY が無いので飛ばします'; exit 0 }
+          $out = Join-Path $env:RUNNER_TEMP 'selftest.json'
+          $env:ESCO_SELFTEST_OUT = $out
+          $p = Start-Process -FilePath (Resolve-Path 'dist/win-unpacked/ESCO Works.exe').Path -ArgumentList '--agent-selftest' -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw '時間内に終わりませんでした' }
+          if (-not (Test-Path $out)) { throw "結果のファイルがありません（終了コード $($p.ExitCode)）" }
+          $r = Get-Content $out -Raw -Encoding UTF8 | ConvertFrom-Json
+          "version=$($r.version) packaged=$($r.packaged) arch=$($r.arch) ok=$($r.ok) file=$($r.fileContent) costUsd=$($r.usage.costUsd) error=$($r.error)"
+          if (-not $r.ok -or -not $r.packaged) { throw 'パッケージ版の自己診断に失敗しました' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esco-works-windows-x64
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/ESCO-Works-Setup-*.exe
+            dist/ESCO-Works-Setup-*.exe.blockmap
+            dist/latest.yml

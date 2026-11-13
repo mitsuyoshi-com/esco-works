@@ -2,7 +2,7 @@
 const { spawnSync } = require('node:child_process')
 const path = require('node:path')
 let bad = 0
-for (const f of ['name-test.cjs', 'import-test.cjs', 'shell-e2e.cjs']) {
+for (const f of ['name-test.cjs', 'import-test.cjs', 'shell-e2e.cjs', 'agent-e2e.cjs']) {
   console.log('\n===== ' + f + ' =====')
   const r = spawnSync(process.execPath, [path.join(__dirname, f)], { stdio: 'inherit' })
   if (r.status !== 0) bad++

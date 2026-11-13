@@ -18,7 +18,9 @@ function createMock(options = {}) {
     autoDownload: options.autoDownload === true,
     sessions: new Map(),                       // cookie -> memberId
     store: new Map(),                          // memberId -> { conversations: Map(legacyId -> {messages, raw?}), projects: Map, business, unreadable: [] }
-    calls: [], importCalls: 0, maxBody: 0, loginCalls: 0
+    calls: [], importCalls: 0, maxBody: 0, loginCalls: 0,
+    // エージェント：memberId -> { enabled, blocked, apiKey }。usage は受け取った報告
+    agent: { members: options.agentMembers || {}, usage: [], configHeaders: [], usageFailFirst: options.usageFailFirst || 0, usageCalls: 0, blockAfterUsage: options.blockAfterUsage === true }
   }
   const userOf = (req) => {
     const m = /(?:^|;\s*)aichat_session=([^;]+)/.exec(req.headers.cookie || '')
@@ -111,6 +113,32 @@ function createMock(options = {}) {
         let convs = [...bk.conversations.entries()].map(([legacyId, v]) => ({ legacyId, messages: v.messages }))
         if (st.corrupt === 'receipt') convs = convs.slice(1)
         return send(res, 200, { ok: true, counts: { conversations: convs.length, projects: bk.projects.size }, conversations: convs, projects: [...bk.projects.keys()].map((legacyId) => ({ legacyId })) })
+      }
+      if (req.method === 'GET' && url.pathname === '/api/agent/config') {
+        const u = userOf(req)
+        if (!u) return send(res, 401, { error: 'ログインしてください' })
+        st.agent.configHeaders.push({ shell: req.headers['x-esco-shell'] || null, origin: req.headers.origin || null, referer: req.headers.referer || null, site: req.headers['sec-fetch-site'] || null })
+        // 本物と同じ：殻からの問い合わせ（x-esco-shell あり・ページ発でない）にだけ答える
+        const site = req.headers['sec-fetch-site']
+        if (req.headers['x-esco-shell'] !== '1' || req.headers.origin || req.headers.referer || (site && site !== 'none')) return send(res, 200, { enabled: false })
+        const m = st.agent.members[u.id]
+        if (!m || !m.enabled) return send(res, 200, { enabled: false })
+        const key = !m.blocked && m.apiKey ? m.apiKey : null
+        return send(res, 200, { enabled: true, blocked: !!m.blocked, ready: !!key, apiKey: key, userName: u.name, remainPct: m.blocked ? 0 : (m.remainPct ?? 100) })
+      }
+      if (req.method === 'POST' && url.pathname === '/api/agent/usage') {
+        const u = userOf(req)
+        if (!u) return send(res, 401, { error: 'ログインしてください' })
+        st.agent.usageCalls++
+        if (st.agent.usageCalls <= st.agent.usageFailFirst) return send(res, 500, { error: 'boom' })
+        const m = st.agent.members[u.id]
+        if (!m || !m.enabled) return send(res, 404, { error: '見つかりません' })
+        const b = JSON.parse((await readBody(req)).text || '{}')
+        const dup = st.agent.usage.some((x) => x.userId === u.id && x.runId === b.runId)
+        if (!dup) st.agent.usage.push({ userId: u.id, ...b })
+        if (st.agent.blockAfterUsage) m.blocked = true
+        if (!dup) m.remainPct = Math.max(0, (m.remainPct ?? 100) - 42)
+        return send(res, 200, { ok: true, added: !dup, blocked: !!m.blocked, remainPct: m.blocked ? 0 : m.remainPct })
       }
       send(res, 404, { error: 'not found' })
     } catch (e) {
